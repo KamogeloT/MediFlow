@@ -50,7 +50,12 @@ const DoctorView = () => {
         )}
       </div>
       <div className="w-full md:w-[350px] border-t md:border-t-0 md:border-l bg-gray-50 p-4 overflow-y-auto order-3">
-        {currentPatient && <PatientHistory patientName={currentPatient.name} />}
+        {currentPatient && (
+          <PatientHistory
+            patientId={currentPatient.id}
+            patientName={currentPatient.name}
+          />
+        )}
       </div>
     </div>
   );

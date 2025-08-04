@@ -1,55 +1,61 @@
-import React from "react";
-import { Card } from "../ui/card";
-import { ScrollArea } from "../ui/scroll-area";
-import { Separator } from "../ui/separator";
-import { Badge } from "../ui/badge";
-import { CalendarDays, Clock, FileText, Stethoscope } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { Card } from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { CalendarDays, FileText, Stethoscope } from "lucide-react";
 
-interface Visit {
+interface Diagnosis {
   id: string;
-  date: string;
+  description: string;
+}
+
+interface Prescription {
+  id: string;
+  medication: string;
+  dosage?: string | null;
+  instructions?: string | null;
+}
+
+interface Encounter {
+  id: string;
+  encounter_date: string;
   doctor: string;
-  diagnosis: string;
-  treatment: string;
-  notes: string;
+  department: string;
+  notes: string | null;
+  diagnoses: Diagnosis[];
+  prescriptions: Prescription[];
 }
 
 interface PatientHistoryProps {
-  visits?: Visit[];
+  patientId: string;
   patientName?: string;
 }
 
-const defaultVisits: Visit[] = [
-  {
-    id: "1",
-    date: "2024-03-15",
-    doctor: "Dr. Sarah Johnson",
-    diagnosis: "Common Cold",
-    treatment: "Rest and OTC medication",
-    notes: "Patient presented with mild fever and congestion",
-  },
-  {
-    id: "2",
-    date: "2024-02-28",
-    doctor: "Dr. Michael Chen",
-    diagnosis: "Annual Check-up",
-    treatment: "No treatment required",
-    notes: "All vitals normal. Recommended regular exercise.",
-  },
-  {
-    id: "3",
-    date: "2024-01-10",
-    doctor: "Dr. Sarah Johnson",
-    diagnosis: "Migraine",
-    treatment: "Prescribed pain medication",
-    notes: "Follow-up in 2 weeks if symptoms persist",
-  },
-];
+const PatientHistory: React.FC<PatientHistoryProps> = ({
+  patientId,
+  patientName,
+}) => {
+  const [history, setHistory] = useState<Encounter[]>([]);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [doctor, setDoctor] = useState("");
+  const [department, setDepartment] = useState("");
 
-const PatientHistory = ({
-  visits = defaultVisits,
-  patientName = "John Doe",
-}: PatientHistoryProps) => {
+  useEffect(() => {
+    if (!patientId) return;
+    const params = new URLSearchParams();
+    if (from) params.append("from", from);
+    if (to) params.append("to", to);
+    if (doctor) params.append("doctor", doctor);
+    if (department) params.append("department", department);
+    fetch(`/api/patient-history/${patientId}?${params.toString()}`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data: Encounter[]) => setHistory(data))
+      .catch((err) => console.error("Failed to load history", err));
+  }, [patientId, from, to, doctor, department]);
+
   return (
     <Card className="h-full w-full bg-white p-6">
       <div className="flex flex-col h-full">
@@ -57,25 +63,46 @@ const PatientHistory = ({
           <h2 className="text-2xl font-semibold text-gray-900">
             Patient History
           </h2>
-          <p className="text-gray-500">{patientName}</p>
+          {patientName && <p className="text-gray-500">{patientName}</p>}
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 mb-4">
+          <Input
+            type="date"
+            value={from}
+            onChange={(e) => setFrom(e.target.value)}
+            placeholder="From"
+          />
+          <Input
+            type="date"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            placeholder="To"
+          />
+          <Input
+            value={doctor}
+            onChange={(e) => setDoctor(e.target.value)}
+            placeholder="Doctor"
+          />
+          <Input
+            value={department}
+            onChange={(e) => setDepartment(e.target.value)}
+            placeholder="Department"
+          />
         </div>
 
         <ScrollArea className="flex-1 pr-4">
           <div className="space-y-6">
-            {visits.map((visit) => (
-              <div key={visit.id} className="rounded-lg border p-4">
+            {history.map((enc) => (
+              <div key={enc.id} className="rounded-lg border p-4">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center space-x-2">
                     <CalendarDays className="h-4 w-4 text-gray-500" />
-                    <span className="text-sm text-gray-600">{visit.date}</span>
+                    <span className="text-sm text-gray-600">
+                      {enc.encounter_date}
+                    </span>
                   </div>
-                  <Badge
-                    variant="secondary"
-                    className="flex items-center gap-1"
-                  >
-                    <Clock className="h-3 w-3" />
-                    <span>Past Visit</span>
-                  </Badge>
+                  <Badge variant="secondary">{enc.department}</Badge>
                 </div>
 
                 <div className="space-y-3">
@@ -83,9 +110,13 @@ const PatientHistory = ({
                     <Stethoscope className="h-4 w-4 text-gray-500 mt-1" />
                     <div>
                       <p className="text-sm font-medium text-gray-900">
-                        {visit.doctor}
+                        {enc.doctor}
                       </p>
-                      <p className="text-sm text-gray-600">{visit.diagnosis}</p>
+                      {enc.diagnoses.map((d) => (
+                        <p key={d.id} className="text-sm text-gray-600">
+                          {d.description}
+                        </p>
+                      ))}
                     </div>
                   </div>
 
@@ -95,17 +126,26 @@ const PatientHistory = ({
                     <FileText className="h-4 w-4 text-gray-500 mt-1" />
                     <div>
                       <p className="text-sm font-medium text-gray-900">
-                        Treatment
+                        Prescriptions
                       </p>
-                      <p className="text-sm text-gray-600">{visit.treatment}</p>
-                      <p className="text-sm text-gray-500 mt-2">
-                        {visit.notes}
-                      </p>
+                      {enc.prescriptions.map((p) => (
+                        <p key={p.id} className="text-sm text-gray-600">
+                          {p.medication}
+                          {p.dosage ? ` - ${p.dosage}` : ""}
+                          {p.instructions ? ` (${p.instructions})` : ""}
+                        </p>
+                      ))}
+                      {enc.notes && (
+                        <p className="text-sm text-gray-500 mt-2">{enc.notes}</p>
+                      )}
                     </div>
                   </div>
                 </div>
               </div>
             ))}
+            {history.length === 0 && (
+              <p className="text-sm text-gray-500">No encounters found</p>
+            )}
           </div>
         </ScrollArea>
       </div>
