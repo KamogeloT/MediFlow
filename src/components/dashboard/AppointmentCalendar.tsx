@@ -33,6 +33,8 @@ import {
 } from "@/lib/appointments";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
+import { useToast } from "@/components/ui/use-toast";
+import { notify } from "@/lib/notifications";
 
 const locales = {
   "en-US": enUS,
@@ -88,6 +90,7 @@ const AppointmentCalendar: React.FC = () => {
     start: new Date(),
     end: new Date(),
   });
+  const { toast } = useToast();
 
   useEffect(() => {
     const load = async () => {
@@ -131,18 +134,37 @@ const AppointmentCalendar: React.FC = () => {
       end_time: form.end.toISOString(),
       status: "scheduled",
     };
-    if (form.id) {
-      await updateAppointment(form.id, payload);
-    } else {
-      await createAppointment(payload);
+    try {
+      if (form.id) {
+        await updateAppointment(form.id, payload);
+      } else {
+        await createAppointment(payload);
+      }
+      toast({ title: "Appointment saved" });
+      notify("Appointment saved", { body: payload.department || undefined });
+      setDialogOpen(false);
+    } catch (error) {
+      toast({
+        title: "Failed to save appointment",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
     }
-    setDialogOpen(false);
   };
 
   const handleDelete = async () => {
     if (!form.id) return;
-    await deleteAppointment(form.id);
-    setDialogOpen(false);
+    try {
+      await deleteAppointment(form.id);
+      toast({ title: "Appointment canceled" });
+      setDialogOpen(false);
+    } catch (error) {
+      toast({
+        title: "Failed to cancel appointment",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+    }
   };
 
   const eventPropGetter = (event: CalendarEvent) => {

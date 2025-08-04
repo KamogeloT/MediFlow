@@ -4,6 +4,7 @@ import App from "./App.tsx";
 import "./index.css";
 import { BrowserRouter } from "react-router-dom";
 import { AuthProvider } from "./lib/auth";
+import { Toaster } from "@/components/ui/toaster";
 
 import { TempoDevtools } from "tempo-devtools";
 TempoDevtools.init();
@@ -15,6 +16,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <BrowserRouter basename={basename}>
       <AuthProvider>
         <App />
+        <Toaster />
       </AuthProvider>
     </BrowserRouter>
   </React.StrictMode>,

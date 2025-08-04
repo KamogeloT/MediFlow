@@ -13,6 +13,9 @@ import {
 } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/components/ui/use-toast";
+import { createPatient } from "@/lib/patients";
+import { notify } from "@/lib/notifications";
 
 interface PatientRegistrationProps {
   onSubmit?: (data: any) => void;
@@ -25,8 +28,34 @@ const PatientRegistration = ({
   initialData = {},
   isEdit = false,
 }: PatientRegistrationProps) => {
+  const { toast } = useToast();
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const firstName = (formData.get("firstName") as string) || "";
+    const lastName = (formData.get("lastName") as string) || "";
+    const full_name = `${firstName} ${lastName}`.trim();
+    try {
+      const patient = await createPatient({ full_name });
+      toast({
+        title: "Patient registered",
+        description: full_name,
+      });
+      notify("New patient registered", { body: full_name });
+      onSubmit(patient);
+    } catch (error) {
+      toast({
+        title: "Registration failed",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <Card className="p-6 bg-white w-full h-full overflow-y-auto">
+      <form onSubmit={handleSubmit}>
       <Tabs defaultValue="personal" className="w-full">
         <TabsList className="mb-4">
           <TabsTrigger value="personal">Personal Information</TabsTrigger>
@@ -40,6 +69,7 @@ const PatientRegistration = ({
               <Label htmlFor="firstName">First Name</Label>
               <Input
                 id="firstName"
+                name="firstName"
                 placeholder="John"
                 defaultValue={initialData.firstName}
               />
@@ -48,6 +78,7 @@ const PatientRegistration = ({
               <Label htmlFor="lastName">Last Name</Label>
               <Input
                 id="lastName"
+                name="lastName"
                 placeholder="Doe"
                 defaultValue={initialData.lastName}
               />
@@ -92,6 +123,7 @@ const PatientRegistration = ({
               <Label htmlFor="phone">Phone Number</Label>
               <Input
                 id="phone"
+                name="phone"
                 type="tel"
                 placeholder="+1 (555) 000-0000"
                 defaultValue={initialData.phone}
@@ -101,6 +133,7 @@ const PatientRegistration = ({
               <Label htmlFor="email">Email</Label>
               <Input
                 id="email"
+                name="email"
                 type="email"
                 placeholder="john.doe@example.com"
                 defaultValue={initialData.email}
@@ -181,11 +214,14 @@ const PatientRegistration = ({
       </Tabs>
 
       <div className="flex justify-end space-x-4 mt-6">
-        <Button variant="outline">Cancel</Button>
-        <Button onClick={() => onSubmit({})}>
+        <Button type="button" variant="outline">
+          Cancel
+        </Button>
+        <Button type="submit">
           {isEdit ? "Update Patient" : "Register Patient"}
         </Button>
       </div>
+      </form>
     </Card>
   );
 };
