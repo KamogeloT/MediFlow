@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import ConsultationPanel from "./ConsultationPanel";
 import PatientHistory from "./PatientHistory";
 import PatientQueue from "./PatientQueue";
+import UpcomingAppointments from "./UpcomingAppointments";
 
 interface Patient {
   id: string;
@@ -29,11 +30,14 @@ const DoctorView = () => {
   };
 
   return (
-    <div className="flex h-full w-full">
-      <div className="w-[350px] border-r bg-gray-50 p-4 overflow-y-auto">
-        <PatientQueue onCheckIn={handleCheckIn} />
+    <div className="flex flex-col md:flex-row h-full w-full">
+      <div className="w-full md:w-[350px] border-b md:border-b-0 md:border-r bg-gray-50 p-4 overflow-y-auto space-y-4 order-2 md:order-1">
+        <UpcomingAppointments />
+        <div id="queue">
+          <PatientQueue onCheckIn={handleCheckIn} />
+        </div>
       </div>
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto order-1 md:order-2">
         {currentPatient && (
           <ConsultationPanel
             patientId={currentPatient.id}
@@ -45,7 +49,7 @@ const DoctorView = () => {
           />
         )}
       </div>
-      <div className="w-[350px] border-l bg-gray-50 p-4 overflow-y-auto">
+      <div className="w-full md:w-[350px] border-t md:border-t-0 md:border-l bg-gray-50 p-4 overflow-y-auto order-3">
         {currentPatient && <PatientHistory patientName={currentPatient.name} />}
       </div>
     </div>

@@ -1,4 +1,5 @@
 import React from "react";
+import { useNavigate } from "react-router-dom";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,6 +33,14 @@ const DashboardHeader = ({
   onRoleSwitch = () => {},
   onLogout = () => {},
 }: DashboardHeaderProps) => {
+  const navigate = useNavigate();
+
+  const handleRoleSwitch = () => {
+    const target = userRole === "doctor" ? "/front-desk" : "/doctor";
+    navigate(target);
+    onRoleSwitch(userRole === "doctor" ? "front-desk" : "doctor");
+  };
+
   return (
     <header className="w-full h-16 bg-white border-b px-4 flex items-center justify-between">
       <div className="flex items-center space-x-4">
@@ -47,28 +56,38 @@ const DashboardHeader = ({
         <nav className="hidden md:flex items-center space-x-2">
           {userRole === "front-desk" ? (
             <>
-              <Button variant="ghost" className="flex items-center space-x-2">
-                <Calendar className="h-4 w-4" />
-                <span>Appointments</span>
+              <Button variant="ghost" asChild>
+                <a href="#appointments" className="flex items-center space-x-2">
+                  <Calendar className="h-4 w-4" />
+                  <span>Appointments</span>
+                </a>
               </Button>
-              <Button variant="ghost" className="flex items-center space-x-2">
-                <UserPlus className="h-4 w-4" />
-                <span>Register Patient</span>
+              <Button variant="ghost" asChild>
+                <a href="#register" className="flex items-center space-x-2">
+                  <UserPlus className="h-4 w-4" />
+                  <span>Register Patient</span>
+                </a>
               </Button>
-              <Button variant="ghost" className="flex items-center space-x-2">
-                <Users className="h-4 w-4" />
-                <span>Patient Queue</span>
+              <Button variant="ghost" asChild>
+                <a href="#queue" className="flex items-center space-x-2">
+                  <Users className="h-4 w-4" />
+                  <span>Patient Queue</span>
+                </a>
               </Button>
             </>
           ) : (
             <>
-              <Button variant="ghost" className="flex items-center space-x-2">
-                <Users className="h-4 w-4" />
-                <span>My Patients</span>
+              <Button variant="ghost" asChild>
+                <a href="#queue" className="flex items-center space-x-2">
+                  <Users className="h-4 w-4" />
+                  <span>My Patients</span>
+                </a>
               </Button>
-              <Button variant="ghost" className="flex items-center space-x-2">
-                <Calendar className="h-4 w-4" />
-                <span>Schedule</span>
+              <Button variant="ghost" asChild>
+                <a href="#appointments" className="flex items-center space-x-2">
+                  <Calendar className="h-4 w-4" />
+                  <span>Schedule</span>
+                </a>
               </Button>
             </>
           )}
@@ -87,11 +106,7 @@ const DashboardHeader = ({
               <User className="mr-2 h-4 w-4" />
               <span>{userName}</span>
             </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() =>
-                onRoleSwitch(userRole === "doctor" ? "front-desk" : "doctor")
-              }
-            >
+            <DropdownMenuItem onClick={handleRoleSwitch}>
               <Users className="mr-2 h-4 w-4" />
               <span>
                 Switch to {userRole === "doctor" ? "Front Desk" : "Doctor"} View

@@ -52,7 +52,7 @@ export async function createAppointment(
     start_time: data.start_time,
     end_time: data.end_time,
     status: data.status,
-    patient_name: data.patients?.full_name ?? "",
+      patient_name: (data as any).patients?.full_name ?? "",
   };
 }
 
@@ -77,7 +77,7 @@ export async function updateAppointment(
     start_time: data.start_time,
     end_time: data.end_time,
     status: data.status,
-    patient_name: data.patients?.full_name ?? "",
+      patient_name: (data as any).patients?.full_name ?? "",
   };
 }
 
