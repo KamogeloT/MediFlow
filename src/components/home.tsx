@@ -53,14 +53,7 @@ const Home = ({
             onQueueUpdate={(data) => console.log("Queue updated:", data)}
           />
         ) : (
-          <DoctorView
-            currentPatient={{
-              name: "John Doe",
-              age: 45,
-              gender: "Male",
-              visitReason: "Regular checkup",
-            }}
-          />
+          <DoctorView />
         )}
       </main>
     </div>

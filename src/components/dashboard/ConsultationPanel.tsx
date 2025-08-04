@@ -10,10 +10,12 @@ import { Separator } from "@/components/ui/separator";
 import { Clock, FileText, Stethoscope, Pill, Save } from "lucide-react";
 
 interface ConsultationPanelProps {
+  patientId?: string;
   patientName?: string;
   patientAge?: number;
   patientGender?: string;
   currentVisitReason?: string;
+  onComplete?: () => void;
 }
 
 const ConsultationPanel = ({
@@ -21,6 +23,7 @@ const ConsultationPanel = ({
   patientAge = 45,
   patientGender = "Male",
   currentVisitReason = "Regular checkup",
+  onComplete,
 }: ConsultationPanelProps) => {
   return (
     <div className="h-full w-full bg-white p-4">
@@ -152,7 +155,7 @@ const ConsultationPanel = ({
 
           <div className="flex justify-end mt-6 gap-4">
             <Button variant="outline">Cancel</Button>
-            <Button>
+            <Button onClick={onComplete}>
               <Save className="h-4 w-4 mr-2" />
               Save Consultation
             </Button>
