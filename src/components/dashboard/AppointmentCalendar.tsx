@@ -1,13 +1,18 @@
-import React from "react";
-import { Calendar } from "@/components/ui/calendar";
-import { Card } from "@/components/ui/card";
+import React, { useEffect, useState } from "react";
+import {
+  Calendar as BigCalendar,
+  dateFnsLocalizer,
+} from "react-big-calendar";
+import { format, parse, startOfWeek, getDay } from "date-fns";
+import enUS from "date-fns/locale/en-US";
+import "react-big-calendar/lib/css/react-big-calendar.css";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,114 +23,245 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, Clock } from "lucide-react";
+import {
+  createAppointment,
+  deleteAppointment,
+  fetchAppointments,
+  subscribeToAppointments,
+  updateAppointment,
+  Appointment,
+} from "@/lib/appointments";
+import { supabase } from "@/lib/supabase";
 
-interface Appointment {
+const locales = {
+  "en-US": enUS,
+};
+const localizer = dateFnsLocalizer({
+  format,
+  parse,
+  startOfWeek,
+  getDay,
+  locales,
+});
+
+interface CalendarEvent {
   id: string;
-  patientName: string;
-  time: string;
-  type: string;
+  title: string;
+  start: Date;
+  end: Date;
+  patient_id?: string;
+  doctor_id?: string | null;
+  department?: string | null;
 }
 
-interface AppointmentCalendarProps {
-  appointments?: Appointment[];
-  onAddAppointment?: (appointment: Omit<Appointment, "id">) => void;
-}
+const departmentColors: Record<string, string> = {
+  cardiology: "#f87171",
+  neurology: "#60a5fa",
+  orthopedics: "#34d399",
+};
 
-const AppointmentCalendar = ({
-  appointments = [
-    { id: "1", patientName: "John Doe", time: "09:00", type: "Check-up" },
-    { id: "2", patientName: "Jane Smith", time: "10:30", type: "Follow-up" },
-    {
-      id: "3",
-      patientName: "Mike Johnson",
-      time: "14:00",
-      type: "Consultation",
-    },
-  ],
-  onAddAppointment = () => {},
-}: AppointmentCalendarProps) => {
-  const [date, setDate] = React.useState<Date | undefined>(new Date());
-  const [isDialogOpen, setIsDialogOpen] = React.useState(true);
+const toCalendarEvent = (a: Appointment): CalendarEvent => ({
+  id: a.id,
+  title: a.patient_name || "Appointment",
+  start: new Date(a.start_time),
+  end: new Date(a.end_time),
+  patient_id: a.patient_id,
+  doctor_id: a.doctor_id,
+  department: a.department,
+});
+
+const AppointmentCalendar: React.FC = () => {
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [patients, setPatients] = useState<{ id: string; full_name: string }[]>([]);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [form, setForm] = useState<{
+    id?: string;
+    patient_id: string;
+    department: string;
+    start: Date;
+    end: Date;
+  }>({
+    patient_id: "",
+    department: "",
+    start: new Date(),
+    end: new Date(),
+  });
+
+  useEffect(() => {
+    const load = async () => {
+      const apps = await fetchAppointments();
+      setEvents(apps.map(toCalendarEvent));
+      const { data } = await supabase
+        .from("patients")
+        .select("id, full_name")
+        .order("full_name");
+      setPatients(data ?? []);
+    };
+    load();
+    const unsub = subscribeToAppointments(() => load());
+    return () => {
+      unsub();
+    };
+  }, []);
+
+  const handleSelectSlot = ({ start, end }: { start: Date; end: Date }) => {
+    setForm({ patient_id: "", department: "", start, end });
+    setDialogOpen(true);
+  };
+
+  const handleSelectEvent = (event: CalendarEvent) => {
+    setForm({
+      id: event.id,
+      patient_id: event.patient_id || "",
+      department: event.department || "",
+      start: event.start,
+      end: event.end,
+    });
+    setDialogOpen(true);
+  };
+
+  const handleSave = async () => {
+    const payload = {
+      patient_id: form.patient_id,
+      department: form.department,
+      start_time: form.start.toISOString(),
+      end_time: form.end.toISOString(),
+      status: "scheduled",
+    };
+    if (form.id) {
+      await updateAppointment(form.id, payload);
+    } else {
+      await createAppointment(payload);
+    }
+    setDialogOpen(false);
+  };
+
+  const handleDelete = async () => {
+    if (!form.id) return;
+    await deleteAppointment(form.id);
+    setDialogOpen(false);
+  };
+
+  const eventPropGetter = (event: CalendarEvent) => {
+    const backgroundColor = event.department
+      ? departmentColors[event.department] || "#3174ad"
+      : "#3174ad";
+    return { style: { backgroundColor } };
+  };
 
   return (
     <div className="p-6 bg-white w-full h-full">
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex justify-between items-center mb-4">
         <h2 className="text-2xl font-semibold">Appointment Calendar</h2>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              New Appointment
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Schedule New Appointment</DialogTitle>
-            </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="grid gap-2">
-                <Label htmlFor="name">Patient Name</Label>
-                <Input id="name" placeholder="Enter patient name" />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="time">Time</Label>
-                <Input id="time" type="time" />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="type">Appointment Type</Label>
-                <Select>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="checkup">Check-up</SelectItem>
-                    <SelectItem value="followup">Follow-up</SelectItem>
-                    <SelectItem value="consultation">Consultation</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
+        <Button
+          onClick={() => {
+            setForm({
+              patient_id: "",
+              department: "",
+              start: new Date(),
+              end: new Date(new Date().getTime() + 30 * 60000),
+            });
+            setDialogOpen(true);
+          }}
+        >
+          New Appointment
+        </Button>
       </div>
-
-      <div className="flex gap-6">
-        <Card className="p-4 flex-1">
-          <Calendar
-            mode="single"
-            selected={date}
-            onSelect={setDate}
-            className="rounded-md border"
-          />
-        </Card>
-
-        <Card className="p-4 flex-1">
-          <h3 className="text-lg font-medium mb-4">
-            Appointments for {date?.toLocaleDateString()}
-          </h3>
-          <ScrollArea className="h-[400px] w-full rounded-md border p-4">
-            {appointments.map((appointment) => (
-              <div
-                key={appointment.id}
-                className="flex items-center justify-between p-3 mb-2 border rounded-lg hover:bg-gray-50"
+      <BigCalendar
+        localizer={localizer}
+        events={events}
+        selectable
+        style={{ height: 500 }}
+        onSelectSlot={handleSelectSlot}
+        onSelectEvent={handleSelectEvent}
+        eventPropGetter={eventPropGetter}
+      />
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{form.id ? "Edit" : "New"} Appointment</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="patient">Patient</Label>
+              <Select
+                value={form.patient_id}
+                onValueChange={(v) =>
+                  setForm((prev) => ({ ...prev, patient_id: v }))
+                }
               >
-                <div>
-                  <p className="font-medium">{appointment.patientName}</p>
-                  <p className="text-sm text-gray-500">{appointment.type}</p>
-                </div>
-                <div className="flex items-center text-gray-500">
-                  <Clock className="h-4 w-4 mr-1" />
-                  <span>{appointment.time}</span>
-                </div>
-              </div>
-            ))}
-          </ScrollArea>
-        </Card>
-      </div>
+                <SelectTrigger id="patient">
+                  <SelectValue placeholder="Select patient" />
+                </SelectTrigger>
+                <SelectContent>
+                  {patients.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.full_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="department">Department</Label>
+              <Select
+                value={form.department}
+                onValueChange={(v) =>
+                  setForm((prev) => ({ ...prev, department: v }))
+                }
+              >
+                <SelectTrigger id="department">
+                  <SelectValue placeholder="Select department" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cardiology">Cardiology</SelectItem>
+                  <SelectItem value="neurology">Neurology</SelectItem>
+                  <SelectItem value="orthopedics">Orthopedics</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="start">Start</Label>
+              <Input
+                id="start"
+                type="datetime-local"
+                value={format(form.start, "yyyy-MM-dd'T'HH:mm")}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    start: new Date(e.target.value),
+                  }))
+                }
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="end">End</Label>
+              <Input
+                id="end"
+                type="datetime-local"
+                value={format(form.end, "yyyy-MM-dd'T'HH:mm")}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    end: new Date(e.target.value),
+                  }))
+                }
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            {form.id && (
+              <Button variant="destructive" onClick={handleDelete}>
+                Cancel Appointment
+              </Button>
+            )}
+            <Button onClick={handleSave}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
 
 export default AppointmentCalendar;
+

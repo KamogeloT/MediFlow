@@ -34,3 +34,21 @@ Run linting:
 ```
 npm run lint
 ```
+
+## Appointments Table
+
+The calendar uses a Supabase table named `appointments` with realtime updates enabled. A minimal schema looks like:
+
+```sql
+create table if not exists public.appointments (
+  id uuid primary key default gen_random_uuid(),
+  patient_id uuid references patients(id),
+  doctor_id uuid null,
+  department text null,
+  start_time timestamptz not null,
+  end_time timestamptz not null,
+  status text not null default 'scheduled'
+);
+```
+
+Enable Realtime on the table to receive live updates in the UI.
