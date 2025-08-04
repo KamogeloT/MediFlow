@@ -1,8 +1,9 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
@@ -10,60 +11,29 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Clock, User } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 
 interface Patient {
   id: string;
   name: string;
-  status: "waiting" | "in-progress" | "completed";
-  waitTime: string;
-  appointmentTime: string;
+  status: "waiting" | "in-consultation" | "completed";
+  waitTime?: string;
+  appointmentTime?: string;
   avatarUrl?: string;
 }
 
 interface PatientQueueProps {
   patients?: Patient[];
+  onCheckIn?: (patient: Patient) => void;
 }
 
-const defaultPatients: Patient[] = [
-  {
-    id: "1",
-    name: "John Smith",
-    status: "waiting",
-    waitTime: "15 min",
-    appointmentTime: "09:00 AM",
-    avatarUrl: "https://api.dicebear.com/7.x/avataaars/svg?seed=john",
-  },
-  {
-    id: "2",
-    name: "Sarah Johnson",
-    status: "in-progress",
-    waitTime: "0 min",
-    appointmentTime: "09:15 AM",
-    avatarUrl: "https://api.dicebear.com/7.x/avataaars/svg?seed=sarah",
-  },
-  {
-    id: "3",
-    name: "Michael Brown",
-    status: "waiting",
-    waitTime: "30 min",
-    appointmentTime: "09:30 AM",
-    avatarUrl: "https://api.dicebear.com/7.x/avataaars/svg?seed=michael",
-  },
-  {
-    id: "4",
-    name: "Emily Davis",
-    status: "completed",
-    waitTime: "0 min",
-    appointmentTime: "08:45 AM",
-    avatarUrl: "https://api.dicebear.com/7.x/avataaars/svg?seed=emily",
-  },
-];
+const defaultPatients: Patient[] = [];
 
 const getStatusColor = (status: Patient["status"]) => {
   switch (status) {
     case "waiting":
       return "bg-yellow-100 text-yellow-800";
-    case "in-progress":
+    case "in-consultation":
       return "bg-blue-100 text-blue-800";
     case "completed":
       return "bg-green-100 text-green-800";
@@ -72,7 +42,63 @@ const getStatusColor = (status: Patient["status"]) => {
   }
 };
 
-const PatientQueue = ({ patients = defaultPatients }: PatientQueueProps) => {
+const PatientQueue = ({
+  patients: initialPatients = defaultPatients,
+  onCheckIn,
+}: PatientQueueProps) => {
+  const [patients, setPatients] = useState<Patient[]>(initialPatients);
+
+  // Fetch queued patients
+  useEffect(() => {
+    const fetchQueue = async () => {
+      try {
+        const res = await fetch("/api/queue");
+        if (res.ok) {
+          const data = (await res.json()) as Patient[];
+          setPatients(data);
+        }
+      } catch (error) {
+        console.error("Failed to fetch queue", error);
+      }
+    };
+
+    fetchQueue();
+  }, []);
+
+  // Realtime updates via Supabase
+  useEffect(() => {
+    const channel = supabase
+      .channel("queue-updates")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "queue" },
+        () => {
+          fetch("/api/queue")
+            .then((res) => res.json())
+            .then((data) => setPatients(data as Patient[]))
+            .catch((err) => console.error("Failed to refresh queue", err));
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const handleCheckIn = async (patient: Patient) => {
+    try {
+      await fetch(`/api/queue/${patient.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "in-consultation" }),
+      });
+      onCheckIn?.(patient);
+    } catch (error) {
+      console.error("Failed to check in patient", error);
+    }
+  };
+
   return (
     <Card className="w-[350px] h-full bg-white p-4">
       <div className="flex items-center justify-between mb-4">
@@ -92,11 +118,13 @@ const PatientQueue = ({ patients = defaultPatients }: PatientQueueProps) => {
             >
               <div className="flex items-start gap-3">
                 <Avatar className="w-10 h-10">
-                  <img
-                    src={patient.avatarUrl}
-                    alt={patient.name}
-                    className="w-full h-full object-cover"
-                  />
+                  {patient.avatarUrl && (
+                    <img
+                      src={patient.avatarUrl}
+                      alt={patient.name}
+                      className="w-full h-full object-cover"
+                    />
+                  )}
                 </Avatar>
                 <div className="flex-1">
                   <div className="flex items-center justify-between">
@@ -108,19 +136,30 @@ const PatientQueue = ({ patients = defaultPatients }: PatientQueueProps) => {
                       {patient.status.replace("-", " ")}
                     </Badge>
                   </div>
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger>
-                        <div className="flex items-center gap-1 text-sm text-gray-500 mt-1">
-                          <Clock className="w-4 h-4" />
-                          <span>Wait time: {patient.waitTime}</span>
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Appointment time: {patient.appointmentTime}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
+                  {patient.waitTime && (
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger>
+                          <div className="flex items-center gap-1 text-sm text-gray-500 mt-1">
+                            <Clock className="w-4 h-4" />
+                            <span>Wait time: {patient.waitTime}</span>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Appointment time: {patient.appointmentTime}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
+                  {patient.status === "waiting" && (
+                    <Button
+                      size="sm"
+                      className="mt-2"
+                      onClick={() => handleCheckIn(patient)}
+                    >
+                      Check In
+                    </Button>
+                  )}
                 </div>
               </div>
             </Card>
