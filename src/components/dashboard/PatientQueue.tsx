@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Clock, User } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { useToast } from "@/components/ui/use-toast";
 
 interface Patient {
   id: string;
@@ -47,6 +48,7 @@ const PatientQueue = ({
   onCheckIn,
 }: PatientQueueProps) => {
   const [patients, setPatients] = useState<Patient[]>(initialPatients);
+  const { toast } = useToast();
 
   // Fetch queued patients
   useEffect(() => {
@@ -94,8 +96,14 @@ const PatientQueue = ({
         body: JSON.stringify({ status: "in-consultation" }),
       });
       onCheckIn?.(patient);
+      toast({ title: "Patient checked in", description: patient.name });
     } catch (error) {
       console.error("Failed to check in patient", error);
+      toast({
+        title: "Failed to check in",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
     }
   };
 

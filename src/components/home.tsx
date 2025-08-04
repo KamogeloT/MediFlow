@@ -1,9 +1,12 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import DashboardHeader from "./DashboardHeader";
 import FrontDeskView from "./dashboard/FrontDeskView";
 import DoctorView from "./dashboard/DoctorView";
+import { useToast } from "@/components/ui/use-toast";
+import { subscribeToPatients } from "@/lib/patients";
+import { notify } from "@/lib/notifications";
 
 interface HomeProps {
   role: "doctor" | "front-desk";
@@ -18,6 +21,7 @@ const Home = ({
 }: HomeProps) => {
   const { signOut } = useAuth();
   const navigate = useNavigate();
+  const { toast } = useToast();
 
   const handleLogout = () => {
     signOut();
@@ -27,6 +31,19 @@ const Home = ({
   const handleRoleSwitch = (newRole: "doctor" | "front-desk") => {
     navigate(newRole === "doctor" ? "/doctor" : "/front-desk");
   };
+
+  useEffect(() => {
+    const unsub = subscribeToPatients((eventType, patient) => {
+      if (eventType === "INSERT") {
+        toast({
+          title: "New patient added",
+          description: patient.full_name,
+        });
+        notify("New patient added", { body: patient.full_name });
+      }
+    });
+    return () => unsub();
+  }, [toast]);
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-100">
