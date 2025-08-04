@@ -24,11 +24,11 @@ const Home = ({
     setCurrentRole(newRole);
   };
 
-  const { logout } = useAuth();
+  const { signOut } = useAuth();
   const navigate = useNavigate();
 
   const handleLogout = () => {
-    logout();
+    signOut();
     navigate("/");
   };
 
