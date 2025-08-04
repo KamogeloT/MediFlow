@@ -19,6 +19,9 @@ const Home = ({
   const [currentRole, setCurrentRole] = useState<"doctor" | "front-desk">(
     initialRole,
   );
+  const [frontDeskView, setFrontDeskView] = useState<
+    "appointments" | "register" | "queue"
+  >("appointments");
 
   const handleRoleSwitch = (newRole: "doctor" | "front-desk") => {
     setCurrentRole(newRole);
@@ -40,17 +43,15 @@ const Home = ({
         userAvatar={userAvatar}
         onRoleSwitch={handleRoleSwitch}
         onLogout={handleLogout}
+        onFrontDeskNavigate={setFrontDeskView}
       />
       <main className="flex-1 h-[calc(100vh-64px)]">
         {currentRole === "front-desk" ? (
           <FrontDeskView
+            view={frontDeskView}
             onPatientRegistration={(data) =>
               console.log("Patient registration:", data)
             }
-            onAppointmentSchedule={(data) =>
-              console.log("Appointment scheduled:", data)
-            }
-            onQueueUpdate={(data) => console.log("Queue updated:", data)}
           />
         ) : (
           <DoctorView

@@ -23,6 +23,7 @@ interface DashboardHeaderProps {
   userAvatar?: string;
   onRoleSwitch?: (role: "doctor" | "front-desk") => void;
   onLogout?: () => void;
+  onFrontDeskNavigate?: (view: "appointments" | "register" | "queue") => void;
 }
 
 const DashboardHeader = ({
@@ -31,6 +32,7 @@ const DashboardHeader = ({
   userAvatar = "https://api.dicebear.com/7.x/avataaars/svg?seed=doctor",
   onRoleSwitch = () => {},
   onLogout = () => {},
+  onFrontDeskNavigate = () => {},
 }: DashboardHeaderProps) => {
   return (
     <header className="w-full h-16 bg-white border-b px-4 flex items-center justify-between">
@@ -47,15 +49,27 @@ const DashboardHeader = ({
         <nav className="hidden md:flex items-center space-x-2">
           {userRole === "front-desk" ? (
             <>
-              <Button variant="ghost" className="flex items-center space-x-2">
+              <Button
+                variant="ghost"
+                className="flex items-center space-x-2"
+                onClick={() => onFrontDeskNavigate("appointments")}
+              >
                 <Calendar className="h-4 w-4" />
                 <span>Appointments</span>
               </Button>
-              <Button variant="ghost" className="flex items-center space-x-2">
+              <Button
+                variant="ghost"
+                className="flex items-center space-x-2"
+                onClick={() => onFrontDeskNavigate("register")}
+              >
                 <UserPlus className="h-4 w-4" />
                 <span>Register Patient</span>
               </Button>
-              <Button variant="ghost" className="flex items-center space-x-2">
+              <Button
+                variant="ghost"
+                className="flex items-center space-x-2"
+                onClick={() => onFrontDeskNavigate("queue")}
+              >
                 <Users className="h-4 w-4" />
                 <span>Patient Queue</span>
               </Button>

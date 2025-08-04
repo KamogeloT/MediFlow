@@ -17,9 +17,10 @@
     "strict": false,
     "paths": {
       "@/*": ["./src/*"]
-    }
+    },
+    "types": ["vitest", "node"]
   },
   "include": ["src"],
-  "exclude": ["src/tempobook"],
+  "exclude": ["src/tempobook", "src/**/*.test.tsx"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
