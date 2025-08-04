@@ -1,15 +1,13 @@
 import { Suspense } from "react";
-import { useRoutes, Routes, Route, Navigate } from "react-router-dom";
+import { useRoutes, Routes, Route } from "react-router-dom";
 import Home from "./components/home";
 import LandingPage from "./components/landing/LandingPage";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
-import { useAuth } from "./lib/auth";
+import ProtectedRoute from "./components/auth/ProtectedRoute";
 import routes from "tempo-routes";
 
 function App() {
-  const { isAuthenticated } = useAuth();
-
   return (
     <Suspense fallback={<p>Loading...</p>}>
       <>
@@ -20,7 +18,9 @@ function App() {
           <Route
             path="/dashboard"
             element={
-              isAuthenticated ? <Home /> : <Navigate to="/login" replace />
+              <ProtectedRoute>
+                <Home />
+              </ProtectedRoute>
             }
           />
         </Routes>
