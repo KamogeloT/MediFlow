@@ -32,6 +32,7 @@ import {
   Appointment,
 } from "@/lib/appointments";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth";
 
 const locales = {
   "en-US": enUS,
@@ -71,6 +72,7 @@ const toCalendarEvent = (a: Appointment): CalendarEvent => ({
 });
 
 const AppointmentCalendar: React.FC = () => {
+  const { user } = useAuth();
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [patients, setPatients] = useState<{ id: string; full_name: string }[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -123,6 +125,7 @@ const AppointmentCalendar: React.FC = () => {
   const handleSave = async () => {
     const payload = {
       patient_id: form.patient_id,
+      doctor_id: user?.id ?? null,
       department: form.department,
       start_time: form.start.toISOString(),
       end_time: form.end.toISOString(),
