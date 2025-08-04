@@ -31,5 +31,9 @@ export default defineConfig({
   server: {
     // @ts-ignore
     allowedHosts: true,
-  }
+  },
+  test: {
+    environment: "jsdom",
+    setupFiles: "./vitest.setup.ts",
+  },
 });

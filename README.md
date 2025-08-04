@@ -35,6 +35,34 @@ Run linting:
 npm run lint
 ```
 
+## Environment Variables
+
+Create a `.env` file based on `.env.example` and provide your Supabase credentials and server configuration. Never commit the `.env` file.
+
+```
+VITE_SUPABASE_URL=your-supabase-url
+VITE_SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_URL=your-supabase-url
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+PORT=3001
+```
+
+## Deployment
+
+### Front-end (Vercel)
+
+1. Push this repository to GitHub.
+2. Create a new project on [Vercel](https://vercel.com) and import the repository.
+3. Set the environment variables from `.env` in the Vercel dashboard.
+4. Vercel will run `npm run build` and serve the `dist` directory.
+
+### Node Backend (Render)
+
+1. Create a new Web Service on [Render](https://render.com) and connect the repository.
+2. Set the build command to `npm install && npm run build` and the start command to `node dist/server/index.js`.
+3. Configure the environment variables from `.env` in the Render dashboard.
+4. Deploy to start the Express server.
+
 ## Appointments Table
 
 The calendar uses a Supabase table named `appointments` with realtime updates enabled. A minimal schema looks like:
