@@ -1,6 +1,5 @@
 import React from "react";
 import PatientRegistration from "./PatientRegistration";
-import AppointmentCalendar from "./AppointmentCalendar";
 import PatientQueue from "./PatientQueue";
 
 interface FrontDeskViewProps {
@@ -13,18 +12,28 @@ const FrontDeskView = ({
   onQueueUpdate = () => {},
 }: FrontDeskViewProps) => {
   return (
-    <div className="flex flex-col md:flex-row h-full w-full">
-      <div className="flex-1 overflow-y-auto p-4 order-2 md:order-1">
-        <div id="register">
-          <PatientRegistration onSubmit={onPatientRegistration} />
+    <div className="flex h-full bg-gray-50">
+      {/* Main Content Area - Patient Registration */}
+      <div className="flex-1 flex flex-col">
+        <div className="flex-1 p-6">
+          <div className="mb-6">
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Patient Registration</h2>
+            <p className="text-gray-600">Register new patients and add them to the queue</p>
+          </div>
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 h-full">
+            <PatientRegistration onSubmit={onPatientRegistration} />
+          </div>
         </div>
       </div>
-      <div className="w-full md:w-[350px] border-t md:border-t-0 md:border-l bg-gray-50 p-4 flex flex-col gap-4 overflow-y-auto order-1 md:order-2">
-        <div id="appointments">
-          <AppointmentCalendar />
-        </div>
-        <div id="queue">
-          <PatientQueue />
+
+      {/* Sidebar - Patient Queue */}
+      <div className="w-96 bg-white border-l border-gray-200 flex flex-col">
+        <div className="flex-1 p-6">
+          <div className="mb-4">
+            <h3 className="text-lg font-semibold text-gray-900 mb-1">Patient Queue</h3>
+            <p className="text-sm text-gray-600">Monitor waiting patients</p>
+          </div>
+          <PatientQueue onCheckIn={onQueueUpdate} />
         </div>
       </div>
     </div>

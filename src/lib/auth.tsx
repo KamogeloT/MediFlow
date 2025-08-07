@@ -35,14 +35,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     name: string,
     role: "doctor" | "front-desk",
   ) => {
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: { name, role },
+        emailRedirectTo: undefined,
       },
     });
     if (error) throw error;
+    // Insert into profiles table if user was created
+    if (data && data.user) {
+      const { error: profileError } = await supabase.from("profiles").insert([
+        {
+          id: data.user.id,
+          full_name: name,
+          role: role,
+        },
+      ]);
+      if (profileError) throw profileError;
+    }
   };
 
   const signIn = async (email: string, password: string) => {
