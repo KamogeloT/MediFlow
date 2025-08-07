@@ -4,8 +4,8 @@ import { createClient } from "@supabase/supabase-js";
 const router = express.Router();
 
 const supabaseUrl = process.env.SUPABASE_URL || "";
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function ensureStaff(req: express.Request, res: express.Response) {
   const authHeader = req.headers.authorization;
