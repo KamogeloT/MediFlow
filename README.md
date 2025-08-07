@@ -7,11 +7,13 @@ A React + TypeScript + Vite application.
 This project uses [Supabase](https://supabase.com) for authentication.
 
 1. Create a Supabase project.
-2. Copy your project's URL and anonymous key.
+2. Copy your project's URL and keys.
 3. Create a `.env` file based on `.env.example` and set the following variables:
    ```
-   VITE_SUPABASE_URL=your-supabase-url
-   VITE_SUPABASE_ANON_KEY=your-anon-key
+   SUPABASE_URL=https://dwhdxzxjwafdigopieps.supabase.co
+   SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR3aGR4enhqd2FmZGlnb3BpZXBzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ1MDE1OTEsImV4cCI6MjA3MDA3NzU5MX0.ZoTstF-048BgDM-ytb9bRdqnVyZUccyqYklhhGJCMUg
+   VITE_SUPABASE_URL=https://dwhdxzxjwafdigopieps.supabase.co
+   VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR3aGR4enhqd2FmZGlnb3BpZXBzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ1MDE1OTEsImV4cCI6MjA3MDA3NzU5MX0.ZoTstF-048BgDM-ytb9bRdqnVyZUccyqYklhhGJCMUg
    ```
 
 ## Development
@@ -40,10 +42,10 @@ npm run lint
 Create a `.env` file based on `.env.example` and provide your Supabase credentials and server configuration. Never commit the `.env` file.
 
 ```
-VITE_SUPABASE_URL=your-supabase-url
-VITE_SUPABASE_ANON_KEY=your-anon-key
-SUPABASE_URL=your-supabase-url
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+SUPABASE_URL=https://dwhdxzxjwafdigopieps.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR3aGR4enhqd2FmZGlnb3BpZXBzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ1MDE1OTEsImV4cCI6MjA3MDA3NzU5MX0.ZoTstF-048BgDM-ytb9bRdqnVyZUccyqYklhhGJCMUg
+VITE_SUPABASE_URL=https://dwhdxzxjwafdigopieps.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR3aGR4enhqd2FmZGlnb3BpZXBzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ1MDE1OTEsImV4cCI6MjA3MDA3NzU5MX0.ZoTstF-048BgDM-ytb9bRdqnVyZUccyqYklhhGJCMUg
 PORT=3001
 ```
 
