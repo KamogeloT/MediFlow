@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BPM Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 20px; border: 1px solid #ccc; border-radius: 5px; }
+        .button { padding: 10px 20px; margin: 5px; background: #007bff; color: white; border: none; border-radius: 3px; cursor: pointer; }
+        .button:hover { background: #0056b3; }
+        .debug-info { background: #f8f9fa; padding: 10px; border-radius: 3px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h1>BPM Feature Test</h1>
+    
+    <div class="test-section">
+        <h2>1. Check if you're logged in as a Doctor</h2>
+        <p>Open your browser's Developer Tools (F12) and check the Console tab for:</p>
+        <ul>
+            <li>User ID</li>
+            <li>User Role</li>
+            <li>Queue Items count</li>
+        </ul>
+        <div class="debug-info">
+            <strong>Expected:</strong> You should see "User role: doctor" and some queue items
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>2. Check if BPM Buttons are Visible</h2>
+        <p>Look for these buttons in your patient queue:</p>
+        <ul>
+            <li><strong>For waiting patients:</strong> "Start Consultation" button (blue outline)</li>
+            <li><strong>For in-consultation patients:</strong> "Continue Consultation" button (blue outline)</li>
+        </ul>
+        <div class="debug-info">
+            <strong>Note:</strong> These buttons only appear if you're logged in as a doctor
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>3. Test BPM Panel</h2>
+        <p>Click "Start Consultation" on any waiting patient. You should see:</p>
+        <ul>
+            <li>The BPM consultation panel opens</li>
+            <li>Tabs for: Consultation, Workflow, Routing, Audit Logs</li>
+            <li>Input fields for notes, diagnosis, prescription</li>
+            <li>Options to complete, route, or archive</li>
+        </ul>
+    </div>
+
+    <div class="test-section">
+        <h2>4. Common Issues & Solutions</h2>
+        <div class="debug-info">
+            <strong>No patients visible?</strong><br>
+            - Check if you have patients in the queue table<br>
+            - Run the test data script: <code>add_test_data.sql</code>
+        </div>
+        <div class="debug-info">
+            <strong>BPM buttons not showing?</strong><br>
+            - Check console for user role<br>
+            - Make sure you're logged in as a doctor<br>
+            - Check if there are patients with 'waiting' or 'in-consultation' status
+        </div>
+        <div class="debug-info">
+            <strong>BPM panel not opening?</strong><br>
+            - Check console for errors<br>
+            - Make sure BPMConsultationPanel component is imported correctly
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>5. Quick Test Commands</h2>
+        <p>In your browser console, you can test:</p>
+        <button class="button" onclick="testUserRole()">Test User Role</button>
+        <button class="button" onclick="testQueueData()">Test Queue Data</button>
+        <button class="button" onclick="testBPMFunctions()">Test BPM Functions</button>
+    </div>
+
+    <script>
+        function testUserRole() {
+            console.log('Testing user role...');
+            // This will only work if you're in the actual app
+            if (typeof window.supabase !== 'undefined') {
+                console.log('Supabase available');
+            } else {
+                console.log('Supabase not available - run this in the actual app');
+            }
+        }
+
+        function testQueueData() {
+            console.log('Testing queue data...');
+            // This will only work if you're in the actual app
+            console.log('Run this in the actual app to test queue data');
+        }
+
+        function testBPMFunctions() {
+            console.log('Testing BPM functions...');
+            // This will only work if you're in the actual app
+            console.log('Run this in the actual app to test BPM functions');
+        }
+    </script>
+</body>
+</html>

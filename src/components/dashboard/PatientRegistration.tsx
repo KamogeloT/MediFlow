@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,8 +16,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/use-toast";
 import { createPatient } from "@/lib/patients";
 import { notify } from "@/lib/notifications";
-import AddToQueueModal from "./AddToQueueModal";
-import { User, Phone, Mail, MapPin, Calendar, Heart, Shield } from "lucide-react";
+import { addToQueue } from "@/lib/queue";
+import { User, Phone, Mail, MapPin, Calendar, Heart, Shield, Plus, Clock } from "lucide-react";
 
 interface PatientRegistrationProps {
   onSubmit?: (data: any) => void;
@@ -31,44 +31,115 @@ const PatientRegistration = ({
   isEdit = false,
 }: PatientRegistrationProps) => {
   const { toast } = useToast();
-  const [showAddToQueue, setShowAddToQueue] = useState(false);
-  const [registeredPatient, setRegisteredPatient] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
+  const [addToQueueEnabled, setAddToQueueEnabled] = useState(false);
+  const [queueData, setQueueData] = useState({
+    departmentId: "",
+    priority: "normal" as "low" | "normal" | "high" | "urgent",
+    notes: "",
+  });
+
+  // Load departments when component mounts
+  useEffect(() => {
+    const loadDepartments = async () => {
+      try {
+        const { fetchDepartments } = await import('@/lib/departments');
+        const depts = await fetchDepartments();
+        setDepartments(depts);
+        if (depts.length > 0) {
+          setQueueData(prev => ({ ...prev, departmentId: depts[0].id }));
+        }
+      } catch (error) {
+        console.error("Failed to load departments", error);
+      }
+    };
+    
+    loadDepartments();
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const firstName = (formData.get("firstName") as string) || "";
-    const lastName = (formData.get("lastName") as string) || "";
-    const full_name = `${firstName} ${lastName}`.trim();
+    setIsLoading(true);
+    
     try {
-      const patient = await createPatient({ full_name });
-      setRegisteredPatient(patient);
+      const formData = new FormData(e.currentTarget);
+      const firstName = (formData.get("firstName") as string) || "";
+      const lastName = (formData.get("lastName") as string) || "";
+      const full_name = `${firstName} ${lastName}`.trim();
       
-      toast({
-        title: "Patient registered successfully",
-        description: `${full_name} has been added to the system.`,
-      });
+      // Create the patient
+      const patient = await createPatient({ full_name });
+      
+      // If add to queue is enabled, add them to the queue
+      if (addToQueueEnabled && queueData.departmentId) {
+        try {
+          await addToQueue({
+            patient_id: patient.id,
+            patient_name: patient.full_name,
+            priority: queueData.priority,
+            department_id: queueData.departmentId,
+            notes: queueData.notes.trim() || undefined,
+            is_walk_in: true,
+          });
+          
+          toast({
+            title: "Patient registered and added to queue",
+            description: `${full_name} has been registered and added to the queue.`,
+          });
+        } catch (queueError) {
+          const errorMessage = (queueError as Error).message;
+          
+          // Check if it's an authentication error
+          if (errorMessage.includes("Authentication required")) {
+            toast({
+              title: "Session expired",
+              description: "Please log in again to add patients to the queue.",
+              variant: "destructive",
+            });
+            // Don't reset the form, let user try again after re-authentication
+            return;
+          }
+          
+          // Patient was created but queue addition failed for other reasons
+          toast({
+            title: "Patient registered but queue addition failed",
+            description: `${full_name} was registered but could not be added to the queue: ${errorMessage}`,
+            variant: "destructive",
+          });
+        }
+      } else {
+        toast({
+          title: "Patient registered successfully",
+          description: `${full_name} has been added to the system.`,
+        });
+      }
+      
       notify("New patient registered", { body: full_name });
       onSubmit(patient);
       
-      // Show the add to queue option
-      setShowAddToQueue(true);
+      // Reset form and queue data
+      const form = document.querySelector('form');
+      if (form) form.reset();
+      setAddToQueueEnabled(false);
+      setQueueData({
+        departmentId: departments.length > 0 ? departments[0].id : "",
+        priority: "normal",
+        notes: "",
+      });
+      
     } catch (error) {
       toast({
         title: "Registration failed",
         description: (error as Error).message,
         variant: "destructive",
       });
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handleAddToQueueSuccess = () => {
-    setShowAddToQueue(false);
-    setRegisteredPatient(null);
-    // Reset the form
-    const form = document.querySelector('form');
-    if (form) form.reset();
-  };
+
 
   return (
     <>
@@ -195,6 +266,83 @@ const PatientRegistration = ({
                     />
                   </div>
                 </div>
+
+                {/* Queue Integration Section */}
+                <div className="border-t border-gray-200 pt-6">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Clock className="w-5 h-5 text-blue-600" />
+                    <h3 className="text-lg font-medium text-gray-900">Queue Management</h3>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        id="addToQueue"
+                        checked={addToQueueEnabled}
+                        onChange={(e) => setAddToQueueEnabled(e.target.checked)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <Label htmlFor="addToQueue" className="text-sm font-medium">
+                        Add patient to queue after registration
+                      </Label>
+                    </div>
+
+                    {addToQueueEnabled && (
+                      <div className="space-y-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="queueDepartment" className="text-sm font-medium">Department *</Label>
+                            <Select 
+                              value={queueData.departmentId} 
+                              onValueChange={(value) => setQueueData(prev => ({ ...prev, departmentId: value }))}
+                            >
+                              <SelectTrigger className="h-10">
+                                <SelectValue placeholder="Select department" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {departments.map((dept) => (
+                                  <SelectItem key={dept.id} value={dept.id}>
+                                    {dept.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label htmlFor="queuePriority" className="text-sm font-medium">Priority Level</Label>
+                            <Select 
+                              value={queueData.priority} 
+                              onValueChange={(value: any) => setQueueData(prev => ({ ...prev, priority: value }))}
+                            >
+                              <SelectTrigger className="h-10">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="low">Low Priority</SelectItem>
+                                <SelectItem value="normal">Normal Priority</SelectItem>
+                                <SelectItem value="high">High Priority</SelectItem>
+                                <SelectItem value="urgent">Urgent</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="queueNotes" className="text-sm font-medium">Queue Notes (Optional)</Label>
+                          <Textarea
+                            id="queueNotes"
+                            value={queueData.notes}
+                            onChange={(e) => setQueueData(prev => ({ ...prev, notes: e.target.value }))}
+                            placeholder="Add any relevant notes for the queue..."
+                            rows={2}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </TabsContent>
 
               <TabsContent value="medical" className="p-6 space-y-6">
@@ -278,27 +426,26 @@ const PatientRegistration = ({
           </Tabs>
 
           <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
-            <div className="flex justify-end space-x-3">
-              <Button type="button" variant="outline" className="h-10 px-6">
-                Cancel
-              </Button>
-              <Button type="submit" className="h-10 px-6">
-                {isEdit ? "Update Patient" : "Register Patient"}
-              </Button>
+            <div className="flex items-center justify-between">
+              {addToQueueEnabled && (
+                <div className="flex items-center gap-2 text-sm text-blue-600">
+                  <Clock className="w-4 h-4" />
+                  <span>Patient will be added to queue after registration</span>
+                </div>
+              )}
+              <div className="flex space-x-3">
+                <Button type="button" variant="outline" className="h-10 px-6">
+                  Cancel
+                </Button>
+                <Button type="submit" className="h-10 px-6" disabled={isLoading}>
+                  {isLoading ? "Processing..." : (isEdit ? "Update Patient" : "Register Patient")}
+                </Button>
+              </div>
             </div>
           </div>
         </form>
       </div>
 
-      {registeredPatient && (
-        <AddToQueueModal
-          isOpen={showAddToQueue}
-          onClose={() => setShowAddToQueue(false)}
-          patientId={registeredPatient.id}
-          patientName={registeredPatient.full_name}
-          onSuccess={handleAddToQueueSuccess}
-        />
-      )}
     </>
   );
 };

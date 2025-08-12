@@ -5,10 +5,11 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar } from "@/components/ui/avatar";
 import { useToast } from "@/components/ui/use-toast";
-import { Calendar, Clock, User, MapPin, Mail, X } from "lucide-react";
+import { Calendar, Clock, User, MapPin, Mail, X, Plus, Search, Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -23,23 +24,27 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { fetchDepartments, fetchDoctorsByDepartment, Department, Doctor } from "@/lib/departments";
-
-interface Appointment {
-  id: string;
-  patient_id: string;
-  patient_name: string;
-  doctor_id?: string;
-  doctor_name?: string;
-  department?: string;
-  start_time: string;
-  end_time: string;
-  status: "scheduled" | "confirmed" | "in-progress" | "completed" | "cancelled";
-  notes?: string;
-  created_at: string;
-}
+import { 
+  fetchAppointmentsByDoctor, 
+  fetchAllAppointments, 
+  createAppointment, 
+  updateAppointmentStatus,
+  deleteAppointment,
+  checkAppointmentConflicts,
+  searchPatients,
+  getPatientById,
+  syncAppointmentsWithQueue,
+  type Appointment,
+  type CreateAppointmentData,
+  type Patient
+} from "@/lib/appointments";
+import { useAuth } from "@/lib/auth";
 
 const AppointmentsPage = () => {
+  const { user } = useAuth();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -51,57 +56,37 @@ const AppointmentsPage = () => {
   const [selectedDepartmentId, setSelectedDepartmentId] = useState<string>("");
   const [isLoadingDoctors, setIsLoadingDoctors] = useState(false);
 
-  // Mock data for now - replace with actual API call
+  // Patient search state
+  const [patientSearchQuery, setPatientSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Patient[]>([]);
+  const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const [showPatientSearch, setShowPatientSearch] = useState(false);
+
+  // Form state
+  const [formData, setFormData] = useState({
+    start_time: "",
+    end_time: "",
+    notes: "",
+  });
+
+  // Load appointments based on user role
   useEffect(() => {
     const loadAppointments = async () => {
       try {
         setIsLoading(true);
-        // Mock appointments data
-        const mockAppointments: Appointment[] = [
-          {
-            id: "1",
-            patient_id: "p1",
-            patient_name: "John Smith",
-            doctor_id: "d1",
-            doctor_name: "Dr. Sarah Johnson",
-            department: "Cardiology",
-            start_time: "2024-01-15T10:00:00Z",
-            end_time: "2024-01-15T11:00:00Z",
-            status: "confirmed",
-            notes: "Follow-up appointment for heart condition",
-            created_at: "2024-01-10T09:00:00Z"
-          },
-          {
-            id: "2",
-            patient_id: "p2",
-            patient_name: "Maria Garcia",
-            doctor_id: "d2",
-            doctor_name: "Dr. Michael Chen",
-            department: "Dermatology",
-            start_time: "2024-01-15T14:30:00Z",
-            end_time: "2024-01-15T15:30:00Z",
-            status: "scheduled",
-            notes: "Skin condition evaluation",
-            created_at: "2024-01-12T11:00:00Z"
-          },
-          {
-            id: "3",
-            patient_id: "p3",
-            patient_name: "Robert Wilson",
-            doctor_id: "d3",
-            doctor_name: "Dr. Emily Davis",
-            department: "Neurology",
-            start_time: "2024-01-16T09:00:00Z",
-            end_time: "2024-01-16T10:00:00Z",
-            status: "in-progress",
-            notes: "Neurological examination",
-            created_at: "2024-01-08T14:00:00Z"
-          }
-        ];
         
-        setAppointments(mockAppointments);
+        if (user?.user_metadata?.role === "doctor") {
+          // Doctor sees only their appointments
+          const doctorAppointments = await fetchAppointmentsByDoctor(user.id);
+          setAppointments(doctorAppointments);
+        } else {
+          // Front desk sees all appointments
+          const allAppointments = await fetchAllAppointments();
+          setAppointments(allAppointments);
+        }
       } catch (error) {
-        console.error("Failed to fetch appointments", error);
+        console.error("Failed to load appointments", error);
         toast({
           title: "Failed to load appointments",
           description: (error as Error).message,
@@ -113,7 +98,7 @@ const AppointmentsPage = () => {
     };
 
     loadAppointments();
-  }, [toast]);
+  }, [user, toast]);
 
   // Load departments
   useEffect(() => {
@@ -158,8 +143,37 @@ const AppointmentsPage = () => {
       }
     };
 
-    loadDoctors();
+    if (selectedDepartmentId) {
+      loadDoctors();
+    }
   }, [selectedDepartmentId, toast]);
+
+  // Search patients when query changes
+  useEffect(() => {
+    const searchPatientsDebounced = setTimeout(async () => {
+      if (patientSearchQuery.trim().length < 2) {
+        setSearchResults([]);
+        return;
+      }
+
+      try {
+        setIsSearching(true);
+        const results = await searchPatients(patientSearchQuery.trim());
+        setSearchResults(results);
+      } catch (error) {
+        console.error("Failed to search patients", error);
+        toast({
+          title: "Failed to search patients",
+          description: (error as Error).message,
+          variant: "destructive",
+        });
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(searchPatientsDebounced);
+  }, [patientSearchQuery, toast]);
 
   const getStatusColor = (status: Appointment["status"]) => {
     switch (status) {
@@ -201,7 +215,8 @@ const AppointmentsPage = () => {
 
   const handleStatusUpdate = async (appointmentId: string, newStatus: Appointment["status"]) => {
     try {
-      // TODO: Implement actual API call
+      await updateAppointmentStatus(appointmentId, newStatus);
+      
       setAppointments(prev => 
         prev.map(apt => 
           apt.id === appointmentId ? { ...apt, status: newStatus } : apt
@@ -221,6 +236,155 @@ const AppointmentsPage = () => {
     }
   };
 
+  const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+  };
+
+  const handleDepartmentChange = (departmentId: string) => {
+    setSelectedDepartmentId(departmentId);
+    setFormData(prev => ({ ...prev, start_time: "", end_time: "", notes: "" }));
+  };
+
+  const handlePatientSelect = (patient: Patient) => {
+    setSelectedPatient(patient);
+    setPatientSearchQuery(patient.full_name);
+    setShowPatientSearch(false);
+  };
+
+  const handleNewAppointment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!selectedPatient || !selectedDepartmentId || !formData.start_time || !formData.end_time) {
+      toast({
+        title: "Missing information",
+        description: "Please select a patient, department, and set appointment times",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validate time format and logic
+    const startTime = new Date(formData.start_time);
+    const endTime = new Date(formData.end_time);
+    const now = new Date();
+
+    console.log('Time validation:', {
+      startTime: formData.start_time,
+      endTime: formData.end_time,
+      startTimeObj: startTime,
+      endTimeObj: endTime,
+      now: now,
+      startIsValid: !isNaN(startTime.getTime()),
+      endIsValid: !isNaN(endTime.getTime()),
+      startIsFuture: startTime > now,
+      endIsAfterStart: endTime > startTime
+    });
+
+    if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
+      toast({
+        title: "Invalid time format",
+        description: "Please select valid start and end times",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (startTime <= now) {
+      toast({
+        title: "Invalid start time",
+        description: "Start time must be in the future",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (endTime <= startTime) {
+      toast({
+        title: "Invalid time range",
+        description: "End time must be after start time",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      // For now, assign to first available doctor in department
+      const availableDoctors = doctors.filter(d => d.department_id === selectedDepartmentId);
+      if (availableDoctors.length === 0) {
+        toast({
+          title: "No doctors available",
+          description: "No doctors are assigned to this department",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const selectedDoctor = availableDoctors[0];
+      console.log('Selected doctor for appointment:', selectedDoctor);
+
+      // Check for appointment conflicts
+      console.log('Checking conflicts for:', {
+        doctorId: selectedDoctor.id,
+        startTime: formData.start_time,
+        endTime: formData.end_time
+      });
+
+      const hasConflict = await checkAppointmentConflicts(
+        selectedDoctor.id,
+        formData.start_time,
+        formData.end_time
+      );
+
+      if (hasConflict) {
+        toast({
+          title: "Appointment conflict",
+          description: "The selected time conflicts with an existing appointment. Please choose a different time.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const appointmentData: CreateAppointmentData = {
+        patient_id: selectedPatient.id,
+        patient_name: selectedPatient.full_name,
+        doctor_id: selectedDoctor.id,
+        department_id: selectedDepartmentId,
+        start_time: formData.start_time,
+        end_time: formData.end_time,
+        notes: formData.notes,
+      };
+
+      console.log('Creating appointment with data:', appointmentData);
+
+      const newAppointment = await createAppointment(appointmentData);
+      
+      setAppointments(prev => [newAppointment, ...prev]);
+      
+      toast({
+        title: "Appointment created",
+        description: `Appointment scheduled for ${selectedPatient.full_name}. Patient has been added to the queue.`,
+      });
+
+      // Reset form and close modal
+      setFormData({
+        start_time: "",
+        end_time: "",
+        notes: "",
+      });
+      setSelectedPatient(null);
+      setPatientSearchQuery("");
+      setSelectedDepartmentId("");
+      setShowModal(false);
+    } catch (error) {
+      console.error('Failed to create appointment:', error);
+      toast({
+        title: "Failed to create appointment",
+        description: error instanceof Error ? error.message : 'Unknown error occurred',
+        variant: "destructive",
+      });
+    }
+  };
+
   const todayAppointments = appointments.filter(apt => {
     const aptDate = new Date(apt.start_time);
     const today = new Date();
@@ -230,75 +394,10 @@ const AppointmentsPage = () => {
   const upcomingAppointments = appointments.filter(apt => {
     const aptDate = new Date(apt.start_time);
     const today = new Date();
-    return aptDate > today && aptDate.toDateString() !== today.toDateString();
+    return aptDate > today;
   });
 
-  // --- New Appointment Modal Logic ---
-  const [form, setForm] = useState({
-    patient_name: "",
-    doctor_id: "",
-    department_id: "",
-    start_time: "",
-    end_time: "",
-    notes: "",
-  });
-  const [formSubmitting, setFormSubmitting] = useState(false);
-
-  const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
-  };
-
-  const handleDepartmentChange = (departmentId: string) => {
-    setSelectedDepartmentId(departmentId);
-    setForm(prev => ({ ...prev, department_id: departmentId, doctor_id: "" }));
-  };
-
-  const handleDoctorChange = (doctorId: string) => {
-    setForm(prev => ({ ...prev, doctor_id: doctorId }));
-  };
-
-  const handleNewAppointment = (e: React.FormEvent) => {
-    e.preventDefault();
-    setFormSubmitting(true);
-
-    const selectedDepartment = departments.find(d => d.id === form.department_id);
-    const selectedDoctor = doctors.find(d => d.id === form.doctor_id);
-
-    // Add to appointments (mock)
-    setAppointments(prev => [
-      {
-        id: (Math.random() * 100000).toFixed(0),
-        patient_id: "mock",
-        patient_name: form.patient_name,
-        doctor_id: form.doctor_id,
-        doctor_name: selectedDoctor?.full_name || "",
-        department: selectedDepartment?.name || "",
-        start_time: form.start_time,
-        end_time: form.end_time,
-        status: "scheduled",
-        notes: form.notes,
-        created_at: new Date().toISOString(),
-      },
-      ...prev,
-    ]);
-
-    setShowModal(false);
-    setForm({
-      patient_name: "",
-      doctor_id: "",
-      department_id: "",
-      start_time: "",
-      end_time: "",
-      notes: "",
-    });
-    setSelectedDepartmentId("");
-    setFormSubmitting(false);
-    
-    toast({
-      title: "Appointment created",
-      description: `New appointment for ${form.patient_name}`,
-    });
-  };
+  const isDoctor = user?.user_metadata?.role === "doctor";
 
   return (
     <div className="h-full flex flex-col bg-gray-50">
@@ -308,39 +407,181 @@ const AppointmentsPage = () => {
           <div className="flex items-center gap-3">
             <Calendar className="w-6 h-6 text-blue-600" />
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Appointments</h1>
-              <p className="text-gray-600">Manage patient appointments and schedules</p>
+              <h1 className="text-2xl font-bold text-gray-900">
+                {isDoctor ? "My Appointments" : "All Appointments"}
+              </h1>
+              <p className="text-gray-600">
+                {isDoctor 
+                  ? "View and manage your scheduled appointments" 
+                  : "Manage all appointments across all departments"
+                }
+              </p>
             </div>
           </div>
-          <Button className="bg-blue-600 hover:bg-blue-700" onClick={() => setShowModal(true)}>
-            <Calendar className="w-4 h-4 mr-2" />
-            New Appointment
-          </Button>
+                     <div className="flex gap-2">
+             {!isDoctor && (
+               <Button onClick={() => setShowModal(true)} className="bg-blue-600 hover:bg-blue-700">
+                 <Plus className="w-4 h-4 mr-2" />
+                 New Appointment
+               </Button>
+             )}
+             <Button 
+               onClick={async () => {
+                 try {
+                   await syncAppointmentsWithQueue();
+                   toast({
+                     title: "Queue synced",
+                     description: "Existing appointments have been added to the queue",
+                   });
+                   // Reload appointments to refresh the view
+                   window.location.reload();
+                 } catch (error) {
+                   toast({
+                     title: "Sync failed",
+                     description: (error as Error).message,
+                     variant: "destructive",
+                   });
+                 }
+               }}
+               variant="outline"
+               className="text-sm"
+             >
+               Sync Queue
+             </Button>
+           </div>
         </div>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-hidden">
+        {isLoading ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-gray-500">Loading appointments...</div>
+          </div>
+        ) : (
+          <ScrollArea className="h-full">
+            <div className="p-6 space-y-6">
+              {/* Today's Appointments */}
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">Today's Appointments</h2>
+                {todayAppointments.length > 0 ? (
+                  <div className="grid gap-4">
+                    {todayAppointments.map((appointment) => (
+                      <AppointmentCard
+                        key={appointment.id}
+                        appointment={appointment}
+                        onStatusUpdate={handleStatusUpdate}
+                        isDoctor={isDoctor}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-gray-500">
+                    No appointments scheduled for today
+                  </div>
+                )}
+              </div>
+
+              {/* Upcoming Appointments */}
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">Upcoming Appointments</h2>
+                {upcomingAppointments.length > 0 ? (
+                  <div className="grid gap-4">
+                    {upcomingAppointments.map((appointment) => (
+                      <AppointmentCard
+                        key={appointment.id}
+                        appointment={appointment}
+                        onStatusUpdate={handleStatusUpdate}
+                        isDoctor={isDoctor}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-gray-500">
+                    No upcoming appointments
+                  </div>
+                )}
+              </div>
+            </div>
+          </ScrollArea>
+        )}
       </div>
 
       {/* New Appointment Modal */}
       <Dialog open={showModal} onOpenChange={setShowModal}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
-            <DialogTitle>New Appointment</DialogTitle>
+            <DialogTitle>Create New Appointment</DialogTitle>
+            <DialogDescription>
+              Schedule a new appointment by selecting a patient, department, and time.
+            </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleNewAppointment} className="space-y-4">
+            {/* Patient Selection */}
             <div className="space-y-2">
-              <Label htmlFor="patient_name">Patient Name</Label>
-              <Input
-                id="patient_name"
-                name="patient_name"
-                value={form.patient_name}
-                onChange={handleFormChange}
-                required
-              />
+              <Label htmlFor="patient">Patient *</Label>
+              <Popover open={showPatientSearch} onOpenChange={setShowPatientSearch}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={showPatientSearch}
+                    className="w-full justify-between"
+                  >
+                    {selectedPatient ? selectedPatient.full_name : "Search for a patient..."}
+                    <Search className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-full p-0" align="start">
+                  <Command>
+                    <CommandInput
+                      placeholder="Search patients by name, email, or phone..."
+                      value={patientSearchQuery}
+                      onValueChange={setPatientSearchQuery}
+                    />
+                    <CommandList>
+                      <CommandEmpty>
+                        {isSearching ? (
+                          <div className="flex items-center justify-center py-6">
+                            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                            Searching...
+                          </div>
+                        ) : (
+                          "No patients found."
+                        )}
+                      </CommandEmpty>
+                      <CommandGroup>
+                        {searchResults.map((patient) => (
+                          <CommandItem
+                            key={patient.id}
+                            onSelect={() => handlePatientSelect(patient)}
+                            className="cursor-pointer"
+                          >
+                            <div className="flex flex-col">
+                              <span className="font-medium">{patient.full_name}</span>
+                              {patient.email && (
+                                <span className="text-sm text-gray-500">{patient.email}</span>
+                              )}
+                            </div>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              {selectedPatient && (
+                <div className="text-sm text-gray-600">
+                  Selected: {selectedPatient.full_name}
+                  {selectedPatient.email && ` • ${selectedPatient.email}`}
+                </div>
+              )}
             </div>
-            
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="department">Department</Label>
-                <Select value={form.department_id} onValueChange={handleDepartmentChange}>
+                <Label htmlFor="department">Department *</Label>
+                <Select value={selectedDepartmentId} onValueChange={handleDepartmentChange}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select department" />
                   </SelectTrigger>
@@ -353,255 +594,170 @@ const AppointmentsPage = () => {
                   </SelectContent>
                 </Select>
               </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="doctor">Doctor</Label>
-                <Select 
-                  value={form.doctor_id} 
-                  onValueChange={handleDoctorChange}
-                  disabled={!selectedDepartmentId || isLoadingDoctors}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder={
-                      !selectedDepartmentId 
-                        ? "Select department first" 
-                        : isLoadingDoctors 
-                          ? "Loading doctors..." 
-                          : "Select doctor"
-                    } />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {doctors.map((doctor) => (
-                      <SelectItem key={doctor.id} value={doctor.id}>
-                        {doctor.full_name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
             </div>
-            
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="start_time">Start Time</Label>
+                <Label htmlFor="start_time">Start Time *</Label>
                 <Input
                   id="start_time"
                   name="start_time"
                   type="datetime-local"
-                  value={form.start_time}
+                  value={formData.start_time}
                   onChange={handleFormChange}
                   required
                 />
               </div>
+              
               <div className="space-y-2">
-                <Label htmlFor="end_time">End Time</Label>
+                <Label htmlFor="end_time">End Time *</Label>
                 <Input
                   id="end_time"
                   name="end_time"
                   type="datetime-local"
-                  value={form.end_time}
+                  value={formData.end_time}
                   onChange={handleFormChange}
                   required
                 />
               </div>
             </div>
-            
+
             <div className="space-y-2">
               <Label htmlFor="notes">Notes</Label>
               <Textarea
                 id="notes"
                 name="notes"
-                value={form.notes}
+                value={formData.notes}
                 onChange={handleFormChange}
+                placeholder="Add appointment notes..."
                 rows={3}
               />
             </div>
-            
+
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setShowModal(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={formSubmitting}>
-                {formSubmitting ? "Creating..." : "Create Appointment"}
+              <Button type="submit" disabled={!selectedPatient || !selectedDepartmentId}>
+                Create Appointment
               </Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
-
-      {/* Content */}
-      <div className="flex-1 overflow-hidden">
-        {isLoading ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-gray-500">Loading appointments...</div>
-          </div>
-        ) : (
-          <ScrollArea className="h-full">
-            <div className="p-6 space-y-6">
-              {/* Today's Appointments */}
-              {todayAppointments.length > 0 && (
-                <div>
-                  <div className="flex items-center gap-2 mb-4">
-                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                    <h2 className="text-lg font-semibold text-gray-900">
-                      Today's Appointments ({todayAppointments.length})
-                    </h2>
-                  </div>
-                  <div className="grid gap-4">
-                    {todayAppointments.map((appointment) => (
-                      <Card key={appointment.id} className="p-6 hover:shadow-md transition-shadow">
-                        <div className="flex items-start justify-between">
-                          <div className="flex items-start gap-4">
-                            <Avatar className="w-12 h-12 bg-blue-100">
-                              <User className="w-6 h-6 text-blue-600" />
-                            </Avatar>
-                            <div className="flex-1">
-                              <div className="flex items-center gap-3 mb-2">
-                                <h3 className="text-lg font-semibold text-gray-900">
-                                  {appointment.patient_name}
-                                </h3>
-                                <Badge 
-                                  variant="outline" 
-                                  className={`${getStatusColor(appointment.status)}`}
-                                >
-                                  {appointment.status.replace("-", " ")}
-                                </Badge>
-                              </div>
-                              
-                              <div className="grid grid-cols-2 gap-4 text-sm text-gray-600">
-                                <div className="flex items-center gap-2">
-                                  <Clock className="w-4 h-4" />
-                                  <span>
-                                    {formatTime(appointment.start_time)} - {formatTime(appointment.end_time)}
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <MapPin className="w-4 h-4" />
-                                  <span>{appointment.department || "General"}</span>
-                                </div>
-                                {appointment.doctor_name && (
-                                  <div className="flex items-center gap-2">
-                                    <User className="w-4 h-4" />
-                                    <span>{appointment.doctor_name}</span>
-                                  </div>
-                                )}
-                              </div>
-                              
-                              {appointment.notes && (
-                                <div className="mt-3 p-3 bg-gray-50 rounded-lg">
-                                  <p className="text-sm text-gray-700">{appointment.notes}</p>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                          
-                          <div className="flex flex-col gap-2">
-                            {appointment.status === "scheduled" && (
-                              <Button 
-                                size="sm" 
-                                onClick={() => handleStatusUpdate(appointment.id, "confirmed")}
-                              >
-                                Confirm
-                              </Button>
-                            )}
-                            {appointment.status === "confirmed" && (
-                              <Button 
-                                size="sm" 
-                                onClick={() => handleStatusUpdate(appointment.id, "in-progress")}
-                              >
-                                Start
-                              </Button>
-                            )}
-                            {appointment.status === "in-progress" && (
-                              <Button 
-                                size="sm" 
-                                variant="outline"
-                                onClick={() => handleStatusUpdate(appointment.id, "completed")}
-                              >
-                                Complete
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      </Card>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Upcoming Appointments */}
-              {upcomingAppointments.length > 0 && (
-                <div>
-                  <div className="flex items-center gap-2 mb-4">
-                    <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                    <h2 className="text-lg font-semibold text-gray-900">
-                      Upcoming Appointments ({upcomingAppointments.length})
-                    </h2>
-                  </div>
-                  <div className="grid gap-4">
-                    {upcomingAppointments.map((appointment) => (
-                      <Card key={appointment.id} className="p-6 hover:shadow-md transition-shadow">
-                        <div className="flex items-start justify-between">
-                          <div className="flex items-start gap-4">
-                            <Avatar className="w-12 h-12 bg-gray-100">
-                              <User className="w-6 h-6 text-gray-600" />
-                            </Avatar>
-                            <div className="flex-1">
-                              <div className="flex items-center gap-3 mb-2">
-                                <h3 className="text-lg font-semibold text-gray-900">
-                                  {appointment.patient_name}
-                                </h3>
-                                <Badge 
-                                  variant="outline" 
-                                  className={`${getStatusColor(appointment.status)}`}
-                                >
-                                  {appointment.status.replace("-", " ")}
-                                </Badge>
-                              </div>
-                              
-                              <div className="grid grid-cols-2 gap-4 text-sm text-gray-600">
-                                <div className="flex items-center gap-2">
-                                  <Clock className="w-4 h-4" />
-                                  <span>{formatDateTime(appointment.start_time)}</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <MapPin className="w-4 h-4" />
-                                  <span>{appointment.department || "General"}</span>
-                                </div>
-                                {appointment.doctor_name && (
-                                  <div className="flex items-center gap-2">
-                                    <User className="w-4 h-4" />
-                                    <span>{appointment.doctor_name}</span>
-                                  </div>
-                                )}
-                              </div>
-                              
-                              {appointment.notes && (
-                                <div className="mt-3 p-3 bg-gray-50 rounded-lg">
-                                  <p className="text-sm text-gray-700">{appointment.notes}</p>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </Card>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {appointments.length === 0 && (
-                <div className="text-center py-12">
-                  <Calendar className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No appointments</h3>
-                  <p className="text-gray-500">No appointments scheduled at this time.</p>
-                </div>
-              )}
-            </div>
-          </ScrollArea>
-        )}
-      </div>
     </div>
+  );
+};
+
+// Appointment Card Component
+const AppointmentCard = ({ 
+  appointment, 
+  onStatusUpdate, 
+  isDoctor 
+}: { 
+  appointment: Appointment; 
+  onStatusUpdate: (id: string, status: Appointment["status"]) => void;
+  isDoctor: boolean;
+}) => {
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  const formatTime = (dateTime: string) => {
+    const date = new Date(dateTime);
+    return date.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+  };
+
+  const formatDateTime = (dateTime: string) => {
+    const date = new Date(dateTime);
+    return date.toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+  };
+
+  const getStatusColor = (status: Appointment["status"]) => {
+    switch (status) {
+      case 'scheduled': return 'bg-blue-100 text-blue-800';
+      case 'confirmed': return 'bg-green-100 text-green-800';
+      case 'in-progress': return 'bg-yellow-100 text-yellow-800';
+      case 'completed': return 'bg-gray-100 text-gray-800';
+      case 'cancelled': return 'bg-red-100 text-red-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const handleStatusChange = async (newStatus: Appointment["status"]) => {
+    setIsUpdating(true);
+    await onStatusUpdate(appointment.id, newStatus);
+    setIsUpdating(false);
+  };
+
+  return (
+    <Card className="p-4">
+      <div className="flex items-start justify-between">
+        <div className="flex-1">
+          <div className="flex items-center gap-3 mb-2">
+            <Avatar className="w-10 h-10">
+              <div className="w-full h-full bg-blue-100 flex items-center justify-center">
+                <User className="w-5 h-5 text-blue-600" />
+              </div>
+            </Avatar>
+            <div>
+              <h3 className="font-semibold text-gray-900">{appointment.patient_name}</h3>
+              <p className="text-sm text-gray-500">
+                {appointment.doctor_name && `Dr. ${appointment.doctor_name}`}
+                {appointment.department_name && ` • ${appointment.department_name}`}
+              </p>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-4 text-sm text-gray-600">
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4" />
+              <span>{formatTime(appointment.start_time)} - {formatTime(appointment.end_time)}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Calendar className="w-4 h-4" />
+              <span>{formatDateTime(appointment.start_time)}</span>
+            </div>
+          </div>
+          
+          {appointment.notes && (
+            <p className="text-sm text-gray-600 mt-2">{appointment.notes}</p>
+          )}
+        </div>
+        
+        <div className="flex flex-col items-end gap-2">
+          <Badge className={getStatusColor(appointment.status)}>
+            {appointment.status.replace('-', ' ')}
+          </Badge>
+          
+          {!isDoctor && (
+            <Select 
+              value={appointment.status} 
+              onValueChange={(value: Appointment["status"]) => handleStatusChange(value)}
+              disabled={isUpdating}
+            >
+              <SelectTrigger className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="scheduled">Scheduled</SelectItem>
+                <SelectItem value="confirmed">Confirmed</SelectItem>
+                <SelectItem value="in-progress">In Progress</SelectItem>
+                <SelectItem value="completed">Completed</SelectItem>
+                <SelectItem value="cancelled">Cancelled</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+      </div>
+    </Card>
   );
 };
 

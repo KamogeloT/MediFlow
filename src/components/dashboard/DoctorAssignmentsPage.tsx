@@ -1,19 +1,24 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar } from "@/components/ui/avatar";
 import { useToast } from "@/components/ui/use-toast";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { 
   Users, 
   Building2, 
   UserPlus, 
   Settings,
   Plus,
-  X
+  X,
+  RefreshCw
 } from "lucide-react";
 import { fetchDepartments, fetchAllDoctors, Department, Doctor } from "@/lib/departments";
+import { supabase } from "@/lib/supabase";
 
 interface DoctorAssignment {
   doctor_id: string;
@@ -27,69 +32,164 @@ const DoctorAssignmentsPage = () => {
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [assignments, setAssignments] = useState<DoctorAssignment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [selectedDoctor, setSelectedDoctor] = useState<string>("");
+  const [selectedDepartment, setSelectedDepartment] = useState<string>("");
+  const [isAdding, setIsAdding] = useState(false);
   const { toast } = useToast();
 
-  // Load departments and doctors
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        setIsLoading(true);
-        const [depts, docs] = await Promise.all([
-          fetchDepartments(),
-          fetchAllDoctors()
-        ]);
-        setDepartments(depts);
-        setDoctors(docs);
-        
-        // For now, create mock assignments based on the dummy data
-        const mockAssignments: DoctorAssignment[] = [
-          { doctor_id: '11111111-1111-1111-1111-111111111111', doctor_name: 'Dr. Sarah Johnson', department_id: '1', department_name: 'Cardiology' },
-          { doctor_id: '11111111-1111-1111-1111-111111111111', doctor_name: 'Dr. Sarah Johnson', department_id: '2', department_name: 'Psychiatry' },
-          { doctor_id: '22222222-2222-2222-2222-222222222222', doctor_name: 'Dr. Michael Chen', department_id: '1', department_name: 'Cardiology' },
-          { doctor_id: '22222222-2222-2222-2222-222222222222', doctor_name: 'Dr. Michael Chen', department_id: '9', department_name: 'Emergency Medicine' },
-          { doctor_id: '33333333-3333-3333-3333-333333333333', doctor_name: 'Dr. Emily Davis', department_id: '2', department_name: 'Dermatology' },
-          { doctor_id: '33333333-3333-3333-3333-333333333333', doctor_name: 'Dr. Emily Davis', department_id: '6', department_name: 'Psychiatry' },
-          { doctor_id: '44444444-4444-4444-4444-444444444444', doctor_name: 'Dr. Robert Wilson', department_id: '3', department_name: 'Neurology' },
-          { doctor_id: '44444444-4444-4444-4444-444444444444', doctor_name: 'Dr. Robert Wilson', department_id: '9', department_name: 'Emergency Medicine' },
-          { doctor_id: '55555555-5555-5555-5555-555555555555', doctor_name: 'Dr. Lisa Rodriguez', department_id: '2', department_name: 'Dermatology' },
-          { doctor_id: '55555555-5555-5555-5555-555555555555', doctor_name: 'Dr. Lisa Rodriguez', department_id: '9', department_name: 'Emergency Medicine' },
-          { doctor_id: '66666666-6666-6666-6666-666666666666', doctor_name: 'Dr. James Thompson', department_id: '3', department_name: 'Neurology' },
-          { doctor_id: '66666666-6666-6666-6666-666666666666', doctor_name: 'Dr. James Thompson', department_id: '10', department_name: 'Internal Medicine' },
-          { doctor_id: '77777777-7777-7777-7777-777777777777', doctor_name: 'Dr. Maria Garcia', department_id: '4', department_name: 'Orthopedics' },
-          { doctor_id: '77777777-7777-7777-7777-777777777777', doctor_name: 'Dr. Maria Garcia', department_id: '10', department_name: 'Internal Medicine' },
-          { doctor_id: '88888888-8888-8888-8888-888888888888', doctor_name: 'Dr. David Kim', department_id: '4', department_name: 'Orthopedics' },
-          { doctor_id: '88888888-8888-8888-8888-888888888888', doctor_name: 'Dr. David Kim', department_id: '10', department_name: 'Internal Medicine' },
-          { doctor_id: '99999999-9999-9999-9999-999999999999', doctor_name: 'Dr. Jennifer Lee', department_id: '5', department_name: 'Pediatrics' },
-          { doctor_id: '99999999-9999-9999-9999-999999999999', doctor_name: 'Dr. Jennifer Lee', department_id: '10', department_name: 'Internal Medicine' },
-          { doctor_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', doctor_name: 'Dr. Christopher Brown', department_id: '5', department_name: 'Pediatrics' },
-          { doctor_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', doctor_name: 'Dr. Christopher Brown', department_id: '10', department_name: 'Internal Medicine' },
-        ];
-        setAssignments(mockAssignments);
-      } catch (error) {
-        console.error("Failed to load data", error);
-        toast({
-          title: "Failed to load data",
-          description: (error as Error).message,
-          variant: "destructive",
+  // Load departments, doctors, and assignments
+  const loadData = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const [depts, docs] = await Promise.all([
+        fetchDepartments(),
+        fetchAllDoctors()
+      ]);
+      setDepartments(depts);
+      setDoctors(docs);
+      
+      // Create assignments from doctors who have departments
+      const doctorAssignments: DoctorAssignment[] = docs
+        .filter(doctor => doctor.department_id)
+        .map(doctor => {
+          const department = depts.find(dept => dept.id === doctor.department_id);
+          return {
+            doctor_id: doctor.id,
+            doctor_name: doctor.full_name,
+            department_id: doctor.department_id!,
+            department_name: department?.name || "Unknown Department",
+          };
         });
-      } finally {
-        setIsLoading(false);
-      }
-    };
 
-    loadData();
+      setAssignments(doctorAssignments);
+    } catch (error) {
+      console.error("Failed to load data", error);
+      toast({
+        title: "Failed to load data",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   }, [toast]);
 
-  const handleRemoveAssignment = (doctorId: string, departmentId: string) => {
-    setAssignments(prev => 
-      prev.filter(assignment => 
-        !(assignment.doctor_id === doctorId && assignment.department_id === departmentId)
-      )
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const handleRemoveAssignment = async (doctorId: string, departmentId: string) => {
+    try {
+      // Remove department assignment by setting departmentID to null
+      const { error } = await supabase
+        .from("profiles")
+        .update({ departmentID: null })
+        .eq("id", doctorId)
+        .eq("departmentID", departmentId);
+
+      if (error) {
+        toast({
+          title: "Failed to remove assignment",
+          description: error.message,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      setAssignments(prev => 
+        prev.filter(assignment => 
+          !(assignment.doctor_id === doctorId && assignment.department_id === departmentId)
+        )
+      );
+      
+      toast({
+        title: "Assignment removed",
+        description: "Doctor has been removed from the department",
+      });
+    } catch (error) {
+      toast({
+        title: "Failed to remove assignment",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleAddAssignment = async () => {
+    if (!selectedDoctor || !selectedDepartment) {
+      toast({
+        title: "Missing information",
+        description: "Please select both a doctor and a department",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Check if assignment already exists
+    const existingAssignment = assignments.find(
+      assignment => assignment.doctor_id === selectedDoctor && assignment.department_id === selectedDepartment
     );
-    toast({
-      title: "Assignment removed",
-      description: "Doctor has been removed from the department",
-    });
+
+    if (existingAssignment) {
+      toast({
+        title: "Assignment already exists",
+        description: "This doctor is already assigned to this department",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setIsAdding(true);
+      // Update the doctor's department assignment
+      const { error } = await supabase
+        .from("profiles")
+        .update({ departmentID: selectedDepartment })
+        .eq("id", selectedDoctor);
+
+      if (error) {
+        toast({
+          title: "Failed to add assignment",
+          description: error.message,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Add to local state
+      const doctor = doctors.find(d => d.id === selectedDoctor);
+      const department = departments.find(d => d.id === selectedDepartment);
+      
+      if (doctor && department) {
+        const newAssignment: DoctorAssignment = {
+          doctor_id: selectedDoctor,
+          doctor_name: doctor.full_name,
+          department_id: selectedDepartment,
+          department_name: department.name,
+        };
+        
+        setAssignments(prev => [...prev, newAssignment]);
+      }
+
+      toast({
+        title: "Assignment added",
+        description: "Doctor has been assigned to the department",
+      });
+
+      // Reset form and close modal
+      setSelectedDoctor("");
+      setSelectedDepartment("");
+      setIsAddModalOpen(false);
+    } catch (error) {
+      toast({
+        title: "Failed to add assignment",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsAdding(false);
+    }
   };
 
   const getAssignmentsByDepartment = () => {
@@ -118,10 +218,82 @@ const DoctorAssignmentsPage = () => {
               <p className="text-gray-600">Manage doctor department assignments</p>
             </div>
           </div>
-          <Button className="bg-blue-600 hover:bg-blue-700">
-            <Plus className="w-4 h-4 mr-2" />
-            Add Assignment
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={loadData}
+              disabled={isLoading}
+              size="sm"
+            >
+              <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+            <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
+              <DialogTrigger asChild>
+                <Button className="bg-blue-600 hover:bg-blue-700">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Assignment
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Add Doctor to Department</DialogTitle>
+                  <p className="text-sm text-gray-600">
+                    Assign a doctor to work in a specific department.
+                  </p>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="doctor">Doctor</Label>
+                    <Select value={selectedDoctor} onValueChange={setSelectedDoctor}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a doctor" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {doctors.map((doctor) => (
+                          <SelectItem key={doctor.id} value={doctor.id}>
+                            {doctor.full_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="department">Department</Label>
+                    <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a department" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {departments.map((dept) => (
+                          <SelectItem key={dept.id} value={dept.id}>
+                            {dept.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="flex justify-end space-x-2 pt-4">
+                    <Button
+                      variant="outline"
+                      onClick={() => setIsAddModalOpen(false)}
+                      disabled={isAdding}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={handleAddAssignment}
+                      disabled={isAdding || !selectedDoctor || !selectedDepartment}
+                    >
+                      {isAdding ? "Adding..." : "Add Assignment"}
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </div>
         </div>
       </div>
 

@@ -13,8 +13,8 @@ import {
 } from "lucide-react";
 
 interface SidebarProps {
-  currentView: "registration" | "appointments" | "queue" | "assignments";
-  onViewChange: (view: "registration" | "appointments" | "queue" | "assignments") => void;
+  currentView: "registration" | "appointments" | "queue" | "assignments" | "patients";
+  onViewChange: (view: "registration" | "appointments" | "queue" | "assignments" | "patients") => void;
   isOpen: boolean;
   onToggle: () => void;
 }
@@ -38,6 +38,12 @@ const Sidebar = ({ currentView, onViewChange, isOpen, onToggle }: SidebarProps) 
       label: "Patient Queue",
       icon: Clock,
       description: "Monitor patient queue"
+    },
+    {
+      id: "patients" as const,
+      label: "Patient Directory",
+      icon: Users,
+      description: "View all patients"
     },
     {
       id: "assignments" as const,
@@ -76,7 +82,7 @@ const Sidebar = ({ currentView, onViewChange, isOpen, onToggle }: SidebarProps) 
       </div>
 
       {/* Navigation */}
-      <ScrollArea className="h-[calc(100vh-120px)]">
+      <ScrollArea className="flex-1">
         <div className="p-4 space-y-2">
           {navigationItems.map((item) => {
             const Icon = item.icon;
@@ -113,13 +119,6 @@ const Sidebar = ({ currentView, onViewChange, isOpen, onToggle }: SidebarProps) 
         {isOpen && (
           <div className="p-4 border-t border-gray-200 mt-auto">
             <div className="space-y-2">
-              <Button
-                variant="ghost"
-                className="w-full justify-start gap-3 h-10 text-gray-700 hover:bg-gray-100"
-              >
-                <Users className="w-4 h-4" />
-                <span className="text-sm">Patients</span>
-              </Button>
               <Button
                 variant="ghost"
                 className="w-full justify-start gap-3 h-10 text-gray-700 hover:bg-gray-100"

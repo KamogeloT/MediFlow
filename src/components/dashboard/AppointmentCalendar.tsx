@@ -26,9 +26,7 @@ import {
 import {
   createAppointment,
   deleteAppointment,
-  fetchAppointments,
-  subscribeToAppointments,
-  updateAppointment,
+  fetchAllAppointments,
   Appointment,
 } from "@/lib/appointments";
 import { supabase } from "@/lib/supabase";
@@ -70,7 +68,7 @@ const toCalendarEvent = (a: Appointment): CalendarEvent => ({
   end: new Date(a.end_time),
   patient_id: a.patient_id,
   doctor_id: a.doctor_id,
-  department: a.department,
+  department: a.department_name,
 });
 
 const AppointmentCalendar: React.FC = () => {
@@ -94,7 +92,7 @@ const AppointmentCalendar: React.FC = () => {
 
   useEffect(() => {
     const load = async () => {
-      const apps = await fetchAppointments();
+      const apps = await fetchAllAppointments();
       setEvents(apps.map(toCalendarEvent));
       const { data } = await supabase
         .from("patients")
@@ -103,10 +101,6 @@ const AppointmentCalendar: React.FC = () => {
       setPatients(data ?? []);
     };
     load();
-    const unsub = subscribeToAppointments(() => load());
-    return () => {
-      unsub();
-    };
   }, []);
 
   const handleSelectSlot = ({ start, end }: { start: Date; end: Date }) => {
@@ -126,23 +120,34 @@ const AppointmentCalendar: React.FC = () => {
   };
 
   const handleSave = async () => {
+    // Get patient name for the payload
+    const patient = patients.find(p => p.id === form.patient_id);
+    if (!patient) {
+      toast({
+        title: "Error",
+        description: "Please select a patient",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const payload = {
       patient_id: form.patient_id,
-      doctor_id: user?.id ?? null,
-      department: form.department,
+      patient_name: patient.full_name,
+      doctor_id: user?.id || "",
+      department_id: form.department,
       start_time: form.start.toISOString(),
       end_time: form.end.toISOString(),
-      status: "scheduled",
+      notes: "",
     };
     try {
-      if (form.id) {
-        await updateAppointment(form.id, payload);
-      } else {
-        await createAppointment(payload);
-      }
+      await createAppointment(payload);
       toast({ title: "Appointment saved" });
-      notify("Appointment saved", { body: payload.department || undefined });
+      notify("Appointment saved", { body: form.department || undefined });
       setDialogOpen(false);
+      // Reload appointments
+      const apps = await fetchAllAppointments();
+      setEvents(apps.map(toCalendarEvent));
     } catch (error) {
       toast({
         title: "Failed to save appointment",
@@ -205,6 +210,9 @@ const AppointmentCalendar: React.FC = () => {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{form.id ? "Edit" : "New"} Appointment</DialogTitle>
+            <p className="text-sm text-gray-600">
+              {form.id ? "Modify appointment details" : "Create a new appointment for a patient"}
+            </p>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">

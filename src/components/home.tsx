@@ -8,9 +8,11 @@ import DoctorView from "./dashboard/DoctorView";
 import AppointmentsPage from "./dashboard/AppointmentsPage";
 import QueuePage from "./dashboard/QueuePage";
 import DoctorAssignmentsPage from "./dashboard/DoctorAssignmentsPage";
+import PatientsPage from "./dashboard/PatientsPage";
 import { useToast } from "@/components/ui/use-toast";
 import { subscribeToPatients } from "@/lib/patients";
 import { notify } from "@/lib/notifications";
+import { supabase } from "@/lib/supabase";
 
 interface HomeProps {
   role: "doctor" | "front-desk";
@@ -18,18 +20,19 @@ interface HomeProps {
   userAvatar?: string;
 }
 
-type ViewType = "registration" | "appointments" | "queue" | "assignments";
+type ViewType = "registration" | "appointments" | "queue" | "assignments" | "patients";
 
 const Home = ({
   role,
   userName = "Dr. John Doe",
   userAvatar = "https://api.dicebear.com/7.x/avataaars/svg?seed=doctor",
 }: HomeProps) => {
-  const { signOut } = useAuth();
+  const { signOut, user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [currentView, setCurrentView] = useState<ViewType>("registration");
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [userDepartment, setUserDepartment] = useState<string | undefined>();
 
   const handleLogout = () => {
     signOut();
@@ -47,6 +50,46 @@ const Home = ({
   const toggleSidebar = () => {
     setSidebarOpen(!sidebarOpen);
   };
+
+  // Fetch user's department information
+  useEffect(() => {
+    const fetchUserDepartment = async () => {
+      if (user?.id) {
+        try {
+          console.log('Fetching department for user:', user.id);
+          
+          const { data: profile, error } = await supabase
+            .from('profiles')
+            .select('department_id, departments(name)')
+            .eq('id', user.id)
+            .single();
+
+          if (error) {
+            console.error('Failed to fetch user department:', error);
+            console.error('Error details:', {
+              code: error.code,
+              message: error.message,
+              details: error.details,
+              hint: error.hint
+            });
+          } else {
+            console.log('Profile data:', profile);
+            if (profile?.departments && typeof profile.departments === 'object' && 'name' in profile.departments) {
+              const deptName = (profile.departments as any).name;
+              console.log('Setting department:', deptName);
+              setUserDepartment(deptName);
+            } else {
+              console.log('No department found or invalid format:', profile?.departments);
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching user department:', error);
+        }
+      }
+    };
+
+    fetchUserDepartment();
+  }, [user]);
 
   useEffect(() => {
     const unsub = subscribeToPatients((eventType, patient) => {
@@ -79,6 +122,8 @@ const Home = ({
           return <QueuePage />;
         case "assignments":
           return <DoctorAssignmentsPage />;
+        case "patients":
+          return <PatientsPage />;
         default:
           return (
             <FrontDeskView
@@ -112,6 +157,7 @@ const Home = ({
           userName={userName}
           userRole={role}
           userAvatar={userAvatar}
+          userDepartment={userDepartment}
           onRoleSwitch={handleRoleSwitch}
           onLogout={handleLogout}
           onToggleSidebar={toggleSidebar}

@@ -18,13 +18,15 @@ import {
   Search,
   Menu,
   Stethoscope,
-  Users
+  Users,
+  Building2
 } from "lucide-react";
 
 interface DashboardHeaderProps {
   userName: string;
   userRole: "doctor" | "front-desk";
   userAvatar?: string;
+  userDepartment?: string;
   onRoleSwitch?: (role: "doctor" | "front-desk") => void;
   onLogout: () => void;
   onToggleSidebar?: () => void;
@@ -35,6 +37,7 @@ const DashboardHeader = ({
   userName,
   userRole,
   userAvatar,
+  userDepartment,
   onRoleSwitch,
   onLogout,
   onToggleSidebar,
@@ -51,10 +54,10 @@ const DashboardHeader = ({
   };
 
   return (
-    <header className="bg-white border-b border-gray-200 px-6 py-4">
+    <header className="bg-white border-b border-gray-200 px-4 sm:px-6 py-4">
       <div className="flex items-center justify-between">
         {/* Left side - Menu and Search */}
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-4 sm:gap-6">
           {userRole === "front-desk" && onToggleSidebar && (
             <Button
               variant="ghost"
@@ -76,8 +79,8 @@ const DashboardHeader = ({
           </div>
         </div>
 
-        {/* Right side - User menu and notifications */}
-        <div className="flex items-center gap-4">
+        {/* Right side - User info, notifications, and menu */}
+        <div className="flex items-center gap-2 sm:gap-4">
           {/* Notifications */}
           <Button variant="ghost" size="sm" className="relative">
             <Bell className="w-5 h-5" />
@@ -91,23 +94,51 @@ const DashboardHeader = ({
             onClick={() => onRoleSwitch?.(userRole === "doctor" ? "front-desk" : "doctor")}
           >
             {getRoleIcon(userRole)}
-            {userRole === "doctor" ? "Doctor" : "Front Desk"}
+            <span className="hidden sm:inline">
+              {userRole === "doctor" ? "Doctor" : "Front Desk"}
+            </span>
           </Badge>
 
-          {/* User Menu */}
+          {/* Department Badge - Show for all users with departments */}
+          {userDepartment && (
+            <Badge 
+              variant="outline" 
+              className="bg-purple-50 text-purple-700 border-purple-200 flex items-center gap-1"
+            >
+              <Building2 className="w-4 h-4" />
+              <span className="hidden sm:inline">{userDepartment}</span>
+            </Badge>
+          )}
+
+          {/* User Info - Always Visible */}
+          <div className="flex items-center gap-2 sm:gap-3 px-2 sm:px-3 py-2 bg-gray-50 rounded-lg border border-gray-200">
+            <Avatar className="w-7 h-7 sm:w-8 sm:h-8">
+              <AvatarImage src={userAvatar} />
+              <AvatarFallback className="bg-blue-100 text-blue-700 text-xs sm:text-sm">
+                {userName.split(" ").map(n => n[0]).join("").toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+            <div className="text-left hidden sm:block">
+              <div className="text-sm font-medium text-gray-900">{userName}</div>
+              <div className="text-xs text-gray-500 capitalize">{userRole.replace("-", " ")}</div>
+              {userDepartment && (
+                <div className="text-xs text-purple-600 font-medium">{userDepartment}</div>
+              )}
+            </div>
+            <div className="text-left sm:hidden">
+              <div className="text-xs font-medium text-gray-900">{userName.split(" ")[0]}</div>
+              <div className="text-xs text-gray-500 capitalize">{userRole.replace("-", " ")}</div>
+              {userDepartment && (
+                <div className="text-xs text-purple-600 font-medium">{userDepartment}</div>
+              )}
+            </div>
+          </div>
+
+          {/* User Menu Dropdown */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="flex items-center gap-2 px-3 py-2">
-                <Avatar className="w-8 h-8">
-                  <AvatarImage src={userAvatar} />
-                  <AvatarFallback className="bg-blue-100 text-blue-700">
-                    {userName.split(" ").map(n => n[0]).join("").toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="hidden md:block text-left">
-                  <div className="text-sm font-medium text-gray-900">{userName}</div>
-                  <div className="text-xs text-gray-500 capitalize">{userRole.replace("-", " ")}</div>
-                </div>
+              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                <User className="w-4 h-4" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
@@ -122,6 +153,9 @@ const DashboardHeader = ({
                   <div>
                     <div className="font-medium">{userName}</div>
                     <div className="text-xs text-gray-500 capitalize">{userRole.replace("-", " ")}</div>
+                    {userDepartment && (
+                      <div className="text-xs text-purple-600 font-medium">{userDepartment}</div>
+                    )}
                   </div>
                 </div>
               </DropdownMenuLabel>

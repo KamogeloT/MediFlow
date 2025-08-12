@@ -10,15 +10,29 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Clock, User, AlertTriangle, CheckCircle, Users } from "lucide-react";
+import { Clock, User, AlertTriangle, CheckCircle, Users, Building2, Stethoscope } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
-import { fetchQueue, updateQueueStatus, subscribeToQueue, QueueEntry } from "@/lib/queue";
+import { 
+  fetchAllQueue, 
+  updateQueueStatus, 
+  subscribeToQueue, 
+  type QueueItem,
+  fetchQueueByDoctor
+} from "@/lib/queue";
+import { useAuth } from "@/lib/auth";
+import { supabase } from "@/lib/supabase";
+import BPMConsultationPanel from "./BPMConsultationPanel";
 
 interface PatientQueueProps {
-  onCheckIn?: (patient: QueueEntry) => void;
+  onCheckIn?: (patient: QueueItem) => void;
 }
 
-const getStatusColor = (status: QueueEntry["status"]) => {
+interface PatientQueueState {
+  queueItems: QueueItem[];
+  isLoading: boolean;
+}
+
+const getStatusColor = (status: QueueItem["status"]) => {
   switch (status) {
     case "waiting":
       return "bg-yellow-50 text-yellow-700 border-yellow-200";
@@ -31,7 +45,7 @@ const getStatusColor = (status: QueueEntry["status"]) => {
   }
 };
 
-const getPriorityColor = (priority: QueueEntry["priority"]) => {
+const getPriorityColor = (priority: QueueItem["priority"]) => {
   switch (priority) {
     case "urgent":
       return "bg-red-50 text-red-700 border-red-200";
@@ -46,7 +60,7 @@ const getPriorityColor = (priority: QueueEntry["priority"]) => {
   }
 };
 
-const getPriorityIcon = (priority: QueueEntry["priority"]) => {
+const getPriorityIcon = (priority: QueueItem["priority"]) => {
   switch (priority) {
     case "urgent":
       return <AlertTriangle className="w-3 h-3" />;
@@ -57,10 +71,10 @@ const getPriorityIcon = (priority: QueueEntry["priority"]) => {
   }
 };
 
-const formatWaitTime = (addedAt: string) => {
+const formatWaitTime = (addedAt: string, checkedInAt?: string) => {
   const added = new Date(addedAt);
-  const now = new Date();
-  const diffMs = now.getTime() - added.getTime();
+  const end = checkedInAt ? new Date(checkedInAt) : new Date();
+  const diffMs = end.getTime() - added.getTime();
   const diffMins = Math.floor(diffMs / 60000);
   
   if (diffMins < 60) {
@@ -73,57 +87,166 @@ const formatWaitTime = (addedAt: string) => {
 };
 
 const PatientQueue = ({ onCheckIn }: PatientQueueProps) => {
-  const [queueEntries, setQueueEntries] = useState<QueueEntry[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const { user } = useAuth();
+  const [state, setState] = useState<PatientQueueState>({
+    queueItems: [],
+    isLoading: true
+  });
+  const [isDoctor, setIsDoctor] = useState(false);
   const { toast } = useToast();
 
-  // Fetch queue entries
+  // Fetch user role from profiles table
   useEffect(() => {
-    const loadQueue = async () => {
-      try {
-        setIsLoading(true);
-        const entries = await fetchQueue();
-        setQueueEntries(entries);
-      } catch (error) {
-        console.error("Failed to fetch queue", error);
-        toast({
-          title: "Failed to load queue",
-          description: (error as Error).message,
-          variant: "destructive",
-        });
-      } finally {
-        setIsLoading(false);
+    const fetchUserRole = async () => {
+      if (user?.id) {
+        try {
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', user.id)
+            .single();
+          
+          if (!error && data) {
+            console.log('User role:', data.role);
+            setIsDoctor(data.role === 'doctor');
+          } else {
+            console.log('Error fetching user role:', error);
+          }
+        } catch (error) {
+          console.error('Failed to fetch user role:', error);
+        }
       }
     };
 
+    fetchUserRole();
+  }, [user?.id]);
+
+  const loadQueue = async () => {
+    try {
+      setState(prev => ({ ...prev, isLoading: true }));
+      
+      let entries: QueueItem[];
+      
+      if (isDoctor && user?.id) {
+        // Doctor sees only patients in their assigned department
+        console.log('Loading doctor queue for user:', user.id);
+        
+        // First, let's check what department this doctor is assigned to
+        const { data: doctorProfile, error: profileError } = await supabase
+          .from('profiles')
+          .select('department_id, departments(name)')
+          .eq('id', user.id)
+          .single();
+        
+        if (profileError) {
+          console.error('Failed to fetch doctor profile:', profileError);
+        } else {
+          console.log('Doctor profile:', doctorProfile);
+          console.log('Doctor assigned to department:', (doctorProfile as any)?.departments?.name, 'ID:', doctorProfile?.department_id);
+        }
+        
+        entries = await fetchQueueByDoctor(user.id);
+        console.log('Doctor queue loaded:', entries.length, 'patients in department');
+        console.log('Queue entries:', entries.map(e => ({ name: e.patient_name, dept: e.department_name, status: e.status })));
+        
+        // Double-check: if we still see patients from other departments, let's filter manually
+        if (doctorProfile?.department_id) {
+          const filteredEntries = entries.filter(item => item.department_id === doctorProfile.department_id);
+          if (filteredEntries.length !== entries.length) {
+            console.warn('Manual filtering applied - some patients were from other departments');
+            entries = filteredEntries;
+          }
+        }
+      } else {
+        // Front desk sees all queue items
+        console.log('Loading all queue entries for front desk');
+        entries = await fetchAllQueue();
+        console.log('All queue entries loaded:', entries.length);
+      }
+      
+      setState(prev => ({ ...prev, queueItems: entries, isLoading: false }));
+    } catch (error) {
+      console.error("Failed to fetch queue", error);
+      toast({
+        title: "Failed to load queue",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+      setState(prev => ({ ...prev, isLoading: false }));
+    }
+  };
+
+  // Load queue when component mounts or user role changes
+  useEffect(() => {
     loadQueue();
-  }, [toast]);
+    
+    // Test if BPM functions exist in database
+    if (isDoctor && user?.id) {
+      const testBPMFunctions = async () => {
+        try {
+          // Test if start_consultation function exists
+          const { data, error } = await supabase.rpc('start_consultation', {
+            p_queue_item_id: '00000000-0000-0000-0000-000000000000', // dummy ID
+            p_doctor_id: user.id,
+            p_notes: null
+          });
+          
+          if (error && error.code === 'P0001' && error.message.includes('Queue item not found')) {
+            console.log('✅ BPM function exists - got expected error for dummy ID');
+          } else if (error) {
+            console.log('❌ BPM function error:', error);
+          } else {
+            console.log('✅ BPM function exists and working');
+          }
+        } catch (error) {
+          console.log('❌ BPM function test failed:', error);
+        }
+      };
+      
+      testBPMFunctions();
+    }
+  }, [isDoctor]);
 
   // Subscribe to real-time updates
   useEffect(() => {
-    const unsubscribe = subscribeToQueue((eventType, entry) => {
+    const unsubscribe = subscribeToQueue((eventType, queueItem) => {
       if (eventType === "INSERT") {
-        setQueueEntries(prev => [...prev, entry]);
+        setState(prev => ({ ...prev, queueItems: [...prev.queueItems, queueItem] }));
       } else if (eventType === "UPDATE") {
-        setQueueEntries(prev => 
-          prev.map(item => item.id === entry.id ? entry : item)
-        );
+        setState(prev => ({
+          ...prev,
+          queueItems: prev.queueItems.map(item => item.id === queueItem.id ? queueItem : item)
+        }));
       } else if (eventType === "DELETE") {
-        setQueueEntries(prev => prev.filter(item => item.id !== entry.id));
+        setState(prev => ({
+          ...prev,
+          queueItems: prev.queueItems.filter(item => item.id !== queueItem.id)
+        }));
       }
     });
 
     return () => unsubscribe();
   }, []);
 
-  const handleCheckIn = async (entry: QueueEntry) => {
+  const handleCheckIn = async (item: QueueItem) => {
     try {
-      await updateQueueStatus(entry.id, "in-consultation");
-      onCheckIn?.(entry);
-      toast({ 
-        title: "Patient checked in", 
-        description: entry.patient_name 
+      await updateQueueStatus(item.id, "in-consultation", isDoctor ? user?.id : undefined);
+      
+      setState(prev => ({
+        ...prev,
+        queueItems: prev.queueItems.map(queueItem => 
+          queueItem.id === item.id 
+            ? { ...queueItem, status: "in-consultation" as const }
+            : queueItem
+        )
+      }));
+      
+      toast({
+        title: "Patient checked in",
+        description: `${item.patient_name} has been checked in.`,
       });
+
+      onCheckIn?.(item);
     } catch (error) {
       console.error("Failed to check in patient", error);
       toast({
@@ -134,12 +257,22 @@ const PatientQueue = ({ onCheckIn }: PatientQueueProps) => {
     }
   };
 
-  const handleComplete = async (entry: QueueEntry) => {
+  const handleComplete = async (item: QueueItem) => {
     try {
-      await updateQueueStatus(entry.id, "completed");
-      toast({ 
-        title: "Consultation completed", 
-        description: entry.patient_name 
+      await updateQueueStatus(item.id, "completed");
+      
+      setState(prev => ({
+        ...prev,
+        queueItems: prev.queueItems.map(queueItem => 
+          queueItem.id === item.id 
+            ? { ...queueItem, status: "completed" as const }
+            : queueItem
+        )
+      }));
+      
+      toast({
+        title: "Consultation completed",
+        description: `${item.patient_name} has completed their consultation.`,
       });
     } catch (error) {
       console.error("Failed to complete consultation", error);
@@ -151,168 +284,272 @@ const PatientQueue = ({ onCheckIn }: PatientQueueProps) => {
     }
   };
 
-  const waitingPatients = queueEntries.filter(entry => entry.status === "waiting");
-  const inConsultationPatients = queueEntries.filter(entry => entry.status === "in-consultation");
+  const handleStartConsultation = (item: QueueItem) => {
+    console.log('Start Consultation clicked for:', item.patient_name);
+    // Call the parent's onCheckIn to open the BPM panel in DoctorView
+    onCheckIn?.(item);
+  };
+
+  const handleConsultationUpdate = () => {
+    setState(prev => ({
+      ...prev,
+      showConsultation: false,
+      selectedPatient: null
+    }));
+    loadQueue();
+  };
+
+  // Filter queue items by status
+  const waitingPatients = state.queueItems.filter(item => item.status === "waiting");
+  const inConsultationPatients = state.queueItems.filter(item => item.status === "in-consultation");
+  const completedPatients = state.queueItems.filter(item => item.status === "completed");
+  
+  // Debug queue filtering
+  console.log('Queue filtering:', {
+    total: state.queueItems.length,
+    waiting: waitingPatients.length,
+    inConsultation: inConsultationPatients.length,
+    completed: completedPatients.length,
+    allItems: state.queueItems
+  });
+
+
 
   return (
-    <div className="h-full flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-200">
-        <div className="flex items-center gap-2">
-          <Users className="w-5 h-5 text-gray-600" />
-          <h3 className="font-semibold text-gray-900">Patient Queue</h3>
+    <TooltipProvider>
+      <div className="flex flex-col min-h-0">
+        {/* Debug info */}
+        <div className="text-xs text-gray-500 mb-3 p-2 bg-gray-100 rounded">
+          User ID: {user?.id || 'None'} | 
+          Role: {isDoctor ? 'Doctor' : 'Not Doctor'} | 
+          Queue Items: {state.queueItems.length}
+          {isDoctor && (
+            <div className="mt-1 text-blue-600 font-medium">
+              Showing patients in your assigned department only
+            </div>
+          )}
         </div>
-        <Badge variant="secondary" className="flex items-center gap-1">
-          <User className="w-3 h-3" />
-          {queueEntries.length}
-        </Badge>
-      </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-hidden">
-        {isLoading ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-gray-500">Loading queue...</div>
-          </div>
-        ) : (
-          <ScrollArea className="h-full">
-            <div className="p-4 space-y-4">
+        {/* Queue Content */}
+        <div className="flex-1 space-y-3">
+          {state.isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            </div>
+          ) : state.queueItems.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              <Users className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+              <p>No patients in queue</p>
+            </div>
+          ) : (
+            <>
               {/* Waiting Patients */}
               {waitingPatients.length > 0 && (
                 <div>
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
-                    <h4 className="text-sm font-medium text-gray-700">
-                      Waiting ({waitingPatients.length})
-                    </h4>
+                  <div className="flex items-center gap-2 mb-3 text-sm font-medium text-gray-700">
+                    <Clock className="w-4 h-4" />
+                    <span>Waiting Patients ({waitingPatients.length})</span>
                   </div>
-        <div className="space-y-3">
-                    {waitingPatients.map((entry) => (
-            <Card
-                        key={entry.id}
-                        className="p-4 hover:shadow-md transition-shadow border border-gray-200"
-            >
-              <div className="flex items-start gap-3">
-                          <Avatar className="w-10 h-10 bg-gray-100">
-                            <User className="w-5 h-5 text-gray-600" />
-                </Avatar>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="flex-1 min-w-0">
-                                <h5 className="font-medium text-gray-900 truncate">
-                                  {entry.patient_name}
-                                </h5>
-                                <div className="flex items-center gap-2 mt-1">
-                                  <div className="flex items-center gap-1">
-                                    {getPriorityIcon(entry.priority)}
-                    <Badge
-                                      variant="outline"
-                                      className={`${getPriorityColor(entry.priority)} text-xs`}
-                    >
-                                      {entry.priority}
-                    </Badge>
-                  </div>
-                                  <div className="flex items-center gap-1 text-xs text-gray-500">
-                                    <Clock className="w-3 h-3" />
-                                    <span>{formatWaitTime(entry.added_at)}</span>
-                                  </div>
-                                </div>
-                                {entry.department && (
-                                  <div className="text-xs text-gray-500 mt-1">
-                                    {entry.department}
-                                  </div>
-                                )}
-                                {entry.notes && (
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger>
-                                        <div className="text-xs text-gray-500 mt-1 truncate">
-                                          📝 {entry.notes}
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                                        <p>{entry.notes}</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  )}
-                              </div>
-                            </div>
-                    <Button
-                      size="sm"
-                              className="mt-3 w-full"
-                              onClick={() => handleCheckIn(entry)}
-                    >
-                      Check In
-                    </Button>
-                          </div>
-                        </div>
-                      </Card>
+                  <div className="space-y-3">
+                    {waitingPatients.map((item) => (
+                      <QueueItemCard
+                        key={item.id}
+                        item={item}
+                        onCheckIn={handleCheckIn}
+                        onComplete={handleComplete}
+                        onStartConsultation={handleStartConsultation}
+                        isDoctor={isDoctor}
+                      />
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* In Consultation Patients */}
+              {/* In-Consultation Patients */}
               {inConsultationPatients.length > 0 && (
                 <div>
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                    <h4 className="text-sm font-medium text-gray-700">
-                      In Consultation ({inConsultationPatients.length})
-                    </h4>
+                  <div className="flex items-center gap-2 mb-3 text-sm font-medium text-gray-700">
+                    <Stethoscope className="w-4 h-4" />
+                    <span>In Consultation ({inConsultationPatients.length})</span>
                   </div>
                   <div className="space-y-3">
-                    {inConsultationPatients.map((entry) => (
-                      <Card
-                        key={entry.id}
-                        className="p-4 bg-blue-50 border-blue-200"
-                      >
-                        <div className="flex items-start gap-3">
-                          <Avatar className="w-10 h-10 bg-blue-100">
-                            <CheckCircle className="w-5 h-5 text-blue-600" />
-                          </Avatar>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="flex-1 min-w-0">
-                                <h5 className="font-medium text-gray-900 truncate">
-                                  {entry.patient_name}
-                                </h5>
-                                <Badge
-                                  variant="outline"
-                                  className="bg-blue-100 text-blue-700 border-blue-200 text-xs mt-1"
-                                >
-                                  In Consultation
-                                </Badge>
-                              </div>
-                            </div>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="mt-3 w-full"
-                              onClick={() => handleComplete(entry)}
-                            >
-                              Complete
-                            </Button>
-                </div>
-              </div>
-            </Card>
-          ))}
+                    {inConsultationPatients.map((item) => (
+                      <QueueItemCard
+                        key={item.id}
+                        item={item}
+                        onCheckIn={handleCheckIn}
+                        onComplete={handleComplete}
+                        onStartConsultation={handleStartConsultation}
+                        isDoctor={isDoctor}
+                      />
+                    ))}
                   </div>
                 </div>
               )}
+            </>
+          )}
+        </div>
+      </div>
+    </TooltipProvider>
+  );
+};
 
-              {queueEntries.length === 0 && (
-                <div className="text-center py-12">
-                  <Users className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-                  <p className="text-gray-500 text-sm">No patients in queue</p>
+// Queue Item Card Component
+const QueueItemCard = ({ 
+  item, 
+  onCheckIn, 
+  onComplete,
+  isDoctor,
+  onStartConsultation
+}: { 
+  item: QueueItem; 
+  onCheckIn: (item: QueueItem) => void;
+  onComplete: (item: QueueItem) => void;
+  isDoctor: boolean;
+  onStartConsultation: (item: QueueItem) => void;
+}) => {
+  return (
+    <Card className="p-4 border border-gray-200 shadow-sm">
+      <div className="flex items-start justify-between">
+        <div className="flex items-start gap-4 flex-1">
+          <Avatar className="w-12 h-12 bg-blue-100">
+            <User className="w-6 h-6 text-blue-600" />
+          </Avatar>
+          <div className="flex-1">
+            <div className="flex items-center gap-3 mb-2">
+              <h3 className="text-lg font-semibold text-gray-900">
+                {item.patient_name}
+              </h3>
+              <div className="flex items-center gap-2">
+                {getPriorityIcon(item.priority)}
+                <Badge 
+                  variant="outline" 
+                  className={`${getPriorityColor(item.priority)} text-xs`}
+                >
+                  {item.priority}
+                </Badge>
+                <Badge 
+                  variant="outline" 
+                  className={`${getStatusColor(item.status)} text-xs`}
+                >
+                  {item.status.replace("-", " ")}
+                </Badge>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4 text-sm text-gray-600">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4" />
+                <span>Wait: {formatWaitTime(item.added_at, item.checked_in_at)}</span>
+              </div>
+              {item.department_name && (
+                <div className="flex items-center gap-2">
+                  <Building2 className="w-4 h-4" />
+                  <span>{item.department_name}</span>
                 </div>
               )}
+              {item.doctor_name && (
+                <div className="flex items-center gap-2">
+                  <User className="w-4 h-4" />
+                  <span>Dr. {item.doctor_name}</span>
+                </div>
+              )}
+            </div>
+            
+            {item.notes && (
+              <div className="mt-3 p-3 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-700">{item.notes}</p>
+              </div>
+            )}
+          </div>
         </div>
-      </ScrollArea>
-        )}
+        
+        <div className="flex flex-col gap-2 ml-4">
+          {item.status === "waiting" && (
+            <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button 
+                    size="sm" 
+                    onClick={() => onCheckIn(item)}
+                    className="h-8"
+                  >
+                    Check In
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Check in patient</p>
+                </TooltipContent>
+              </Tooltip>
+              
+              {isDoctor && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button 
+                      size="sm" 
+                      variant="outline"
+                      onClick={() => onStartConsultation(item)}
+                      className="h-8"
+                    >
+                      <Stethoscope className="h-3 w-3 mr-1" />
+                      Start Consultation
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Start BPM consultation session</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+              {!isDoctor && (
+                <div className="text-xs text-gray-500">Doctor only</div>
+              )}
+            </>
+          )}
+          
+          {item.status === "in-consultation" && (
+            <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={() => onComplete(item)}
+                    className="h-8"
+                  >
+                    Complete
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Mark consultation as completed</p>
+                </TooltipContent>
+              </Tooltip>
+              
+              {isDoctor && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button 
+                      size="sm" 
+                      variant="outline"
+                      onClick={() => onStartConsultation(item)}
+                      className="h-8"
+                    >
+                      <Stethoscope className="h-3 w-3 mr-1" />
+                      Continue Consultation
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Continue BPM consultation session</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+              {!isDoctor && (
+                <div className="text-xs text-gray-500">Doctor only</div>
+              )}
+            </>
+          )}
+        </div>
       </div>
-    </div>
+    </Card>
   );
 };
 
