@@ -60,7 +60,7 @@ const Home = ({
           
           const { data: profile, error } = await supabase
             .from('profiles')
-            .select('department_id, departments(name)')
+            .select('department_id')
             .eq('id', user.id)
             .single();
 
@@ -74,12 +74,22 @@ const Home = ({
             });
           } else {
             console.log('Profile data:', profile);
-            if (profile?.departments && typeof profile.departments === 'object' && 'name' in profile.departments) {
-              const deptName = (profile.departments as any).name;
-              console.log('Setting department:', deptName);
-              setUserDepartment(deptName);
+            if (profile?.department_id) {
+              // Get department name separately
+              const { data: department, error: deptError } = await supabase
+                .from('departments')
+                .select('name')
+                .eq('id', profile.department_id)
+                .single();
+              
+              if (!deptError && department) {
+                console.log('Setting department:', department.name);
+                setUserDepartment(department.name);
+              } else {
+                console.log('No department found or invalid format');
+              }
             } else {
-              console.log('No department found or invalid format:', profile?.departments);
+              console.log('No department found or invalid format');
             }
           }
         } catch (error) {

@@ -21,6 +21,9 @@ import {
   getConsultationLogs,
   getConsultationWorkflowStates,
   getDepartmentRoutingRules,
+  getDoctorDepartments,
+  assignDoctorToDepartment,
+  validateQueueItem,
   type ConsultationLog,
   type ConsultationWorkflowState
 } from "@/lib/consultations";
@@ -50,12 +53,25 @@ const BPMConsultationPanel = ({
 }: BPMConsultationPanelProps) => {
   const { user } = useAuth();
   const { toast } = useToast();
+  
+  // Debug logging
+  console.log('BPMConsultationPanel props:', {
+    queueItemId,
+    patientName,
+    patientAge,
+    patientGender,
+    currentVisitReason,
+    departmentId,
+    departmentName
+  });
+  
   const [isLoading, setIsLoading] = useState(false);
   const [consultationStarted, setConsultationStarted] = useState(false);
   const [consultationLogs, setConsultationLogs] = useState<ConsultationLog[]>([]);
   const [workflowStates, setWorkflowStates] = useState<ConsultationWorkflowState[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [routingRules, setRoutingRules] = useState<any[]>([]);
+  const [userDepartments, setUserDepartments] = useState<string[]>([]);
   
   // Form states
   const [consultationNotes, setConsultationNotes] = useState("");
@@ -72,9 +88,41 @@ const BPMConsultationPanel = ({
   const [showArchiveDialog, setShowArchiveDialog] = useState(false);
   const [showCompleteDialog, setShowCompleteDialog] = useState(false);
 
+  // Validation states
+  const [queueItemValid, setQueueItemValid] = useState(true);
+  const [validationError, setValidationError] = useState("");
+  const [isValidating, setIsValidating] = useState(false);
+
   useEffect(() => {
     loadInitialData();
   }, [queueItemId]);
+
+  // Validate queue item whenever queueItemId changes
+  useEffect(() => {
+    if (queueItemId) {
+      validateQueueItemRealTime();
+    }
+  }, [queueItemId]);
+
+  const validateQueueItemRealTime = async () => {
+    try {
+      setIsValidating(true);
+      setValidationError("");
+      
+      const validation = await validateQueueItem(queueItemId);
+      setQueueItemValid(validation.isValid);
+      
+      if (!validation.isValid) {
+        setValidationError(validation.error || "Validation failed");
+      }
+    } catch (error) {
+      console.error("Real-time validation error:", error);
+      setQueueItemValid(false);
+      setValidationError("Failed to validate queue item");
+    } finally {
+      setIsValidating(false);
+    }
+  };
 
   const loadInitialData = async () => {
     try {
@@ -87,6 +135,13 @@ const BPMConsultationPanel = ({
       // Load routing rules
       const rules = await getDepartmentRoutingRules();
       setRoutingRules(rules);
+      
+      // Load current user's department assignments
+      if (user?.id) {
+        const userDepts = await getDoctorDepartments(user.id);
+        setUserDepartments(userDepts);
+        console.log('Current user departments:', userDepts);
+      }
       
       // Load consultation logs if consultation is already started
       await loadConsultationData();
@@ -136,11 +191,13 @@ const BPMConsultationPanel = ({
         notes: consultationNotes
       });
 
-      await startConsultation({
+      const result = await startConsultation({
         queue_item_id: queueItemId,
         doctor_id: user.id,
         notes: consultationNotes
       });
+
+      console.log('Consultation started successfully:', result);
 
       setConsultationStarted(true);
       await loadConsultationData();
@@ -154,16 +211,38 @@ const BPMConsultationPanel = ({
     } catch (error) {
       console.error("Failed to start consultation:", error);
       
-      // More detailed error logging
-      if (error && typeof error === 'object' && 'message' in error) {
-        console.error("Error message:", error.message);
+      // Enhanced error logging
+      if (error && typeof error === 'object') {
+        console.error("Error object:", error);
+        console.error("Error message:", (error as any).message);
         console.error("Error code:", (error as any).code);
         console.error("Error details:", (error as any).details);
+        console.error("Error hint:", (error as any).hint);
+        
+        // Check if it's a Supabase error
+        if ((error as any).code) {
+          console.error("Supabase error code:", (error as any).code);
+        }
+      }
+      
+      // Provide more specific error messages
+      let errorMessage = "Failed to start consultation";
+      
+      if (error && typeof error === 'object') {
+        if ((error as any).message) {
+          errorMessage = (error as any).message;
+        } else if ((error as any).code === 'P0001') {
+          errorMessage = "Queue item not found or access denied";
+        } else if ((error as any).code === '42501') {
+          errorMessage = "Permission denied. Please check your department assignment.";
+        } else if ((error as any).code === '42P01') {
+          errorMessage = "Database function not found. Please contact administrator.";
+        }
       }
       
       toast({
         title: "Error",
-        description: `Failed to start consultation: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {
@@ -289,99 +368,205 @@ const BPMConsultationPanel = ({
   };
 
   return (
-    <div className="h-full w-full bg-white p-4">
-      <Card className="h-full">
-        <div className="p-6">
-          {/* Header */}
-          <div className="flex justify-between items-center mb-6">
-            <div>
-              <h2 className="text-2xl font-bold">{patientName}</h2>
-              <p className="text-gray-600">
-                {patientAge} years • {patientGender} • {departmentName}
-              </p>
+    <div className="h-full w-full bg-gray-50 p-6">
+      <Card className="h-full shadow-lg border-0">
+        <div className="p-8">
+          {/* Enhanced Header */}
+          <div className="flex justify-between items-start mb-8">
+            <div className="flex-1">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                  <Stethoscope className="h-6 w-6 text-blue-600" />
+                </div>
+                <div>
+                  <h2 className="text-3xl font-bold text-gray-900">{patientName}</h2>
+                  <div className="flex items-center gap-4 mt-1">
+                    <span className="text-gray-600 flex items-center gap-1">
+                      <Clock className="h-4 w-4" />
+                      {patientAge} years
+                    </span>
+                    <span className="text-gray-600 flex items-center gap-1">
+                      <Pill className="h-4 w-4" />
+                      {patientGender}
+                    </span>
+                    <span className="text-gray-600 flex items-center gap-1">
+                      <Building2 className="h-4 w-4" />
+                      {departmentName}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              
               {consultationStarted && (
-                <div className="flex items-center gap-2 mt-2">
-                  <Clock className="h-4 w-4 text-blue-500" />
-                  <span className="text-sm text-blue-600">Consultation in progress</span>
+                <div className="flex items-center gap-3 mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  <Clock className="h-5 w-5 text-blue-600" />
+                  <span className="text-blue-800 font-medium">Consultation in progress</span>
                   {getCurrentWorkflowState() && (
-                    <Badge className={getStatusColor(getCurrentWorkflowState()!.current_state)}>
+                    <Badge className={`${getStatusColor(getCurrentWorkflowState()!.current_state)} px-3 py-1`}>
                       {getCurrentWorkflowState()!.current_state.replace('_', ' ')}
                     </Badge>
                   )}
                 </div>
               )}
+              
+                             {/* Department Info - Shows which departments you can work in */}
+               <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                 <div className="text-sm text-blue-800">
+                   <strong>Your Departments:</strong> {userDepartments.length > 0 ? userDepartments.join(', ') : 'None assigned'}
+                   <br />
+                   <strong>Current Patient Department:</strong> {departmentName}
+                   <br />
+                   <span className="text-xs text-blue-600">
+                     You can only see patients from your assigned departments
+                   </span>
+                 </div>
+                 {userDepartments.length === 0 && (
+                   <Button 
+                     onClick={async () => {
+                       if (user?.id) {
+                         const success = await assignDoctorToDepartment(user.id, departmentId);
+                         if (success) {
+                           toast({
+                             title: "Department Assignment",
+                             description: "You have been assigned to this department",
+                           });
+                           // Reload user departments
+                           const userDepts = await getDoctorDepartments(user.id);
+                           setUserDepartments(userDepts);
+                         }
+                       }
+                     }}
+                     className="mt-2 bg-blue-600 hover:bg-blue-700 text-white"
+                     size="sm"
+                   >
+                     Assign Me to This Department
+                   </Button>
+                 )}
+               </div>
+
+               {/* Queue Item Validation Status */}
+               <div className={`mt-4 p-3 rounded-lg border ${
+                 queueItemValid 
+                   ? 'bg-green-50 border-green-200' 
+                   : 'bg-red-50 border-red-200'
+               }`}>
+                 <div className={`text-sm ${
+                   queueItemValid ? 'text-green-800' : 'text-red-800'
+                 }`}>
+                   <div className="flex items-center gap-2">
+                     {isValidating ? (
+                       <>
+                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                         <strong>Validating queue item...</strong>
+                       </>
+                     ) : queueItemValid ? (
+                       <>
+                         <CheckCircle className="h-4 w-4 text-green-600" />
+                         <strong>Queue item is valid and ready for consultation</strong>
+                       </>
+                     ) : (
+                       <>
+                         <AlertTriangle className="h-4 w-4 text-red-600" />
+                         <strong>Queue item validation failed</strong>
+                       </>
+                     )}
+                   </div>
+                   {!queueItemValid && validationError && (
+                     <div className="mt-2 text-red-700">
+                       {validationError}
+                     </div>
+                   )}
+                   {!queueItemValid && (
+                     <Button 
+                       onClick={validateQueueItemRealTime}
+                       className="mt-2 bg-red-600 hover:bg-red-700 text-white"
+                       size="sm"
+                     >
+                       Re-validate
+                     </Button>
+                   )}
+                 </div>
+               </div>
             </div>
             
-            <div className="flex items-center gap-2">
-              {!consultationStarted ? (
-                <Button 
-                  onClick={handleStartConsultation} 
-                  disabled={isLoading}
-                  className="bg-blue-600 hover:bg-blue-700"
-                >
-                  <Stethoscope className="h-4 w-4 mr-2" />
-                  Start Consultation
-                </Button>
-              ) : (
-                <div className="flex gap-2">
+                         <div className="flex items-center gap-3">
+               {!consultationStarted ? (
+                 <Button 
+                   onClick={handleStartConsultation} 
+                   disabled={isLoading || !queueItemValid || isValidating}
+                   className={`px-6 py-3 text-lg font-medium shadow-lg ${
+                     queueItemValid && !isValidating
+                       ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                       : 'bg-gray-400 cursor-not-allowed text-gray-200'
+                   }`}
+                 >
+                   <Stethoscope className="h-5 w-5 mr-2" />
+                   {isValidating ? 'Validating...' : 'Start Consultation'}
+                 </Button>
+               ) : (
+                <div className="flex gap-3">
                   <Dialog open={showCompleteDialog} onOpenChange={setShowCompleteDialog}>
                     <DialogTrigger asChild>
-                      <Button variant="outline" className="text-green-600 border-green-600">
+                      <Button variant="outline" className="text-green-700 border-green-300 hover:bg-green-50 px-4 py-2">
                         <CheckCircle className="h-4 w-4 mr-2" />
                         Complete
                       </Button>
                     </DialogTrigger>
-                    <DialogContent>
+                    <DialogContent className="sm:max-w-[600px]">
                       <DialogHeader>
-                        <DialogTitle>Complete Consultation</DialogTitle>
+                        <DialogTitle className="text-xl">Complete Consultation</DialogTitle>
                         <DialogDescription>
                           Complete the consultation session and archive the patient record.
                         </DialogDescription>
                       </DialogHeader>
-                      <div className="space-y-4">
+                      <div className="space-y-6">
                         <div>
-                          <Label>Diagnosis</Label>
+                          <Label className="text-sm font-medium text-gray-700">Diagnosis</Label>
                           <Textarea 
                             value={diagnosis}
                             onChange={(e) => setDiagnosis(e.target.value)}
                             placeholder="Enter diagnosis..."
+                            className="mt-2 h-24 resize-none"
                           />
                         </div>
                         <div>
-                          <Label>Prescription</Label>
+                          <Label className="text-sm font-medium text-gray-700">Prescription</Label>
                           <Textarea 
                             value={prescription}
                             onChange={(e) => setPrescription(e.target.value)}
                             placeholder="Enter prescription..."
+                            className="mt-2 h-24 resize-none"
                           />
                         </div>
-                        <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-6">
                           <div className="flex items-center gap-2">
                             <input
                               type="checkbox"
                               id="followUp"
                               checked={followUpRequired}
                               onChange={(e) => setFollowUpRequired(e.target.checked)}
+                              className="w-4 h-4 text-blue-600 rounded border-gray-300"
                             />
-                            <Label htmlFor="followUp">Follow-up required</Label>
+                            <Label htmlFor="followUp" className="text-sm font-medium text-gray-700">Follow-up required</Label>
                           </div>
                           {followUpRequired && (
                             <div>
-                              <Label>Follow-up Date</Label>
+                              <Label className="text-sm font-medium text-gray-700">Follow-up Date</Label>
                               <Input
                                 type="date"
                                 value={followUpDate}
                                 onChange={(e) => setFollowUpDate(e.target.value)}
+                                className="mt-2"
                               />
                             </div>
                           )}
                         </div>
                       </div>
-                      <DialogFooter>
+                      <DialogFooter className="gap-3">
                         <Button variant="outline" onClick={() => setShowCompleteDialog(false)}>
                           Cancel
                         </Button>
-                        <Button onClick={handleCompleteConsultation} disabled={isLoading}>
+                        <Button onClick={handleCompleteConsultation} disabled={isLoading} className="bg-green-600 hover:bg-green-700">
                           Complete Consultation
                         </Button>
                       </DialogFooter>
@@ -390,23 +575,23 @@ const BPMConsultationPanel = ({
 
                   <Dialog open={showRoutingDialog} onOpenChange={setShowRoutingDialog}>
                     <DialogTrigger asChild>
-                      <Button variant="outline" className="text-orange-600 border-orange-600">
+                      <Button variant="outline" className="text-orange-700 border-orange-300 hover:bg-orange-50 px-4 py-2">
                         <Route className="h-4 w-4 mr-2" />
                         Route
                       </Button>
                     </DialogTrigger>
-                    <DialogContent>
+                    <DialogContent className="sm:max-w-[500px]">
                       <DialogHeader>
-                        <DialogTitle>Route to Department</DialogTitle>
+                        <DialogTitle className="text-xl">Route to Department</DialogTitle>
                         <DialogDescription>
                           Route this patient to another department for specialized care.
                         </DialogDescription>
                       </DialogHeader>
-                      <div className="space-y-4">
+                      <div className="space-y-6">
                         <div>
-                          <Label>Select Department</Label>
+                          <Label className="text-sm font-medium text-gray-700">Select Department</Label>
                           <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
-                            <SelectTrigger>
+                            <SelectTrigger className="mt-2">
                               <SelectValue placeholder="Choose department..." />
                             </SelectTrigger>
                             <SelectContent>
@@ -421,19 +606,20 @@ const BPMConsultationPanel = ({
                           </Select>
                         </div>
                         <div>
-                          <Label>Routing Reason</Label>
+                          <Label className="text-sm font-medium text-gray-700">Routing Reason</Label>
                           <Textarea 
                             value={routingReason}
                             onChange={(e) => setRoutingReason(e.target.value)}
                             placeholder="Explain why patient needs to be routed..."
+                            className="mt-2 h-24 resize-none"
                           />
                         </div>
                       </div>
-                      <DialogFooter>
+                      <DialogFooter className="gap-3">
                         <Button variant="outline" onClick={() => setShowRoutingDialog(false)}>
                           Cancel
                         </Button>
-                        <Button onClick={handleRouteConsultation} disabled={isLoading || !selectedDepartment}>
+                        <Button onClick={handleRouteConsultation} disabled={isLoading || !selectedDepartment} className="bg-orange-600 hover:bg-orange-700">
                           Route Patient
                         </Button>
                       </DialogFooter>
@@ -442,33 +628,34 @@ const BPMConsultationPanel = ({
 
                   <Dialog open={showArchiveDialog} onOpenChange={setShowArchiveDialog}>
                     <DialogTrigger asChild>
-                      <Button variant="outline" className="text-gray-600 border-gray-600">
+                      <Button variant="outline" className="text-gray-700 border-gray-300 hover:bg-gray-50 px-4 py-2">
                         <Archive className="h-4 w-4 mr-2" />
                         Archive
                       </Button>
                     </DialogTrigger>
-                    <DialogContent>
+                    <DialogContent className="sm:max-w-[500px]">
                       <DialogHeader>
-                        <DialogTitle>Archive Consultation</DialogTitle>
+                        <DialogTitle className="text-xl">Archive Consultation</DialogTitle>
                         <DialogDescription>
                           Archive this consultation for record keeping.
                         </DialogDescription>
                       </DialogHeader>
-                      <div className="space-y-4">
+                      <div className="space-y-6">
                         <div>
-                          <Label>Archive Reason (Optional)</Label>
+                          <Label className="text-sm font-medium text-gray-700">Archive Reason (Optional)</Label>
                           <Textarea 
                             value={archiveReason}
                             onChange={(e) => setArchiveReason(e.target.value)}
                             placeholder="Reason for archiving..."
+                            className="mt-2 h-24 resize-none"
                           />
                         </div>
                       </div>
-                      <DialogFooter>
+                      <DialogFooter className="gap-3">
                         <Button variant="outline" onClick={() => setShowArchiveDialog(false)}>
                           Cancel
                         </Button>
-                        <Button onClick={handleArchiveConsultation} disabled={isLoading}>
+                        <Button onClick={handleArchiveConsultation} disabled={isLoading} className="bg-gray-600 hover:bg-gray-700">
                           Archive
                         </Button>
                       </DialogFooter>
@@ -479,65 +666,66 @@ const BPMConsultationPanel = ({
             </div>
           </div>
 
-          {/* Main Content */}
+          {/* Enhanced Main Content */}
           <Tabs defaultValue="consultation" className="w-full">
-            <TabsList className="grid w-full grid-cols-4 mb-4">
-              <TabsTrigger value="consultation">
+            <TabsList className="grid w-full grid-cols-4 mb-6 bg-gray-100 p-1 rounded-lg">
+              <TabsTrigger value="consultation" className="data-[state=active]:bg-white data-[state=active]:shadow-sm">
                 <Stethoscope className="h-4 w-4 mr-2" />
                 Consultation
               </TabsTrigger>
-              <TabsTrigger value="workflow">
+              <TabsTrigger value="workflow" className="data-[state=active]:bg-white data-[state=active]:shadow-sm">
                 <History className="h-4 w-4 mr-2" />
                 Workflow
               </TabsTrigger>
-              <TabsTrigger value="routing">
+              <TabsTrigger value="routing" className="data-[state=active]:bg-white data-[state=active]:shadow-sm">
                 <Route className="h-4 w-4 mr-2" />
                 Routing
               </TabsTrigger>
-              <TabsTrigger value="logs">
+              <TabsTrigger value="logs" className="data-[state=active]:bg-white data-[state=active]:shadow-sm">
                 <FileText className="h-4 w-4 mr-2" />
                 Audit Logs
               </TabsTrigger>
             </TabsList>
 
-            <ScrollArea className="h-[calc(100vh-400px)]">
+            <ScrollArea className="h-[calc(100vh-500px)] pr-4">
               {/* Consultation Tab */}
-              <TabsContent value="consultation" className="space-y-4">
-                <div className="space-y-4">
-                  <div>
-                    <Label>Reason for Visit</Label>
-                    <Input defaultValue={currentVisitReason} className="mt-2" readOnly />
+              <TabsContent value="consultation" className="space-y-6">
+                <div className="space-y-6">
+                  <div className="bg-white p-6 rounded-lg border border-gray-200">
+                    <Label className="text-sm font-medium text-gray-700 mb-2 block">Reason for Visit</Label>
+                    <Input defaultValue={currentVisitReason} className="mt-2 bg-gray-50" readOnly />
                   </div>
-                  <div>
-                    <Label>Consultation Notes</Label>
+                  
+                  <div className="bg-white p-6 rounded-lg border border-gray-200">
+                    <Label className="text-sm font-medium text-gray-700 mb-2 block">Consultation Notes</Label>
                     <Textarea
                       value={consultationNotes}
                       onChange={(e) => setConsultationNotes(e.target.value)}
                       placeholder="Enter detailed consultation notes here..."
-                      className="mt-2 h-[200px]"
+                      className="mt-2 h-32 resize-none"
                     />
                   </div>
                   
                   {consultationStarted && (
                     <>
-                      <Separator />
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <Label>Diagnosis</Label>
+                      <Separator className="my-8" />
+                      <div className="grid grid-cols-2 gap-6">
+                        <div className="bg-white p-6 rounded-lg border border-gray-200">
+                          <Label className="text-sm font-medium text-gray-700 mb-2 block">Diagnosis</Label>
                           <Textarea
                             value={diagnosis}
                             onChange={(e) => setDiagnosis(e.target.value)}
                             placeholder="Enter diagnosis..."
-                            className="mt-2"
+                            className="mt-2 h-24 resize-none"
                           />
                         </div>
-                        <div>
-                          <Label>Prescription</Label>
+                        <div className="bg-white p-6 rounded-lg border border-gray-200">
+                          <Label className="text-sm font-medium text-gray-700 mb-2 block">Prescription</Label>
                           <Textarea
                             value={prescription}
                             onChange={(e) => setPrescription(e.target.value)}
                             placeholder="Enter prescription..."
-                            className="mt-2"
+                            className="mt-2 h-24 resize-none"
                           />
                         </div>
                       </div>
@@ -547,55 +735,57 @@ const BPMConsultationPanel = ({
               </TabsContent>
 
               {/* Workflow Tab */}
-              <TabsContent value="workflow" className="space-y-4">
-                <div className="space-y-4">
-                  <h3 className="text-lg font-semibold">Consultation Workflow States</h3>
+              <TabsContent value="workflow" className="space-y-6">
+                <div className="space-y-6">
+                  <h3 className="text-xl font-semibold text-gray-900">Consultation Workflow States</h3>
                   {workflowStates.length > 0 ? (
-                    <div className="space-y-3">
+                    <div className="space-y-4">
                       {workflowStates.map((state, index) => (
-                        <div key={state.id} className="flex items-center gap-3 p-3 border rounded-lg">
+                        <div key={state.id} className="flex items-center gap-4 p-4 bg-white border border-gray-200 rounded-lg shadow-sm">
                           <div className="flex-shrink-0">
-                            <Badge className={getStatusColor(state.current_state)}>
+                            <Badge className={`${getStatusColor(state.current_state)} px-3 py-1`}>
                               {state.current_state.replace('_', ' ')}
                             </Badge>
                           </div>
                           <div className="flex-1">
-                            <p className="text-sm text-gray-600">
+                            <p className="text-sm text-gray-700 font-medium">
                               {state.transition_reason || 'State transition'}
                             </p>
-                            <p className="text-xs text-gray-500">
+                            <p className="text-xs text-gray-500 mt-1">
                               {new Date(state.created_at).toLocaleString()}
                             </p>
                           </div>
                           {index < workflowStates.length - 1 && (
-                            <div className="text-gray-300">↓</div>
+                            <div className="text-blue-400 text-2xl">↓</div>
                           )}
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <div className="text-center py-8 text-gray-500">
-                      No workflow states recorded yet
+                    <div className="text-center py-12 text-gray-500 bg-white border border-gray-200 rounded-lg">
+                      <History className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                      <p className="text-lg">No workflow states recorded yet</p>
+                      <p className="text-sm">Workflow states will appear here as the consultation progresses</p>
                     </div>
                   )}
                 </div>
               </TabsContent>
 
               {/* Routing Tab */}
-              <TabsContent value="routing" className="space-y-4">
-                <div className="space-y-4">
-                  <h3 className="text-lg font-semibold">Department Routing</h3>
+              <TabsContent value="routing" className="space-y-6">
+                <div className="space-y-6">
+                  <h3 className="text-xl font-semibold text-gray-900">Department Routing</h3>
                   
-                  <div className="grid gap-4">
-                    <div>
-                      <Label>Available Departments</Label>
-                      <div className="mt-2 space-y-2">
+                  <div className="space-y-6">
+                    <div className="bg-white p-6 rounded-lg border border-gray-200">
+                      <Label className="text-sm font-medium text-gray-700 mb-4 block">Available Departments</Label>
+                      <div className="space-y-3">
                         {departments
                           .filter(dept => dept.id !== departmentId)
                           .map(dept => (
-                            <div key={dept.id} className="flex items-center justify-between p-3 border rounded-lg">
+                            <div key={dept.id} className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
                               <div>
-                                <h4 className="font-medium">{dept.name}</h4>
+                                <h4 className="font-medium text-gray-900">{dept.name}</h4>
                                 <p className="text-sm text-gray-600">{dept.description}</p>
                               </div>
                               <Button
@@ -605,6 +795,7 @@ const BPMConsultationPanel = ({
                                   setSelectedDepartment(dept.id);
                                   setShowRoutingDialog(true);
                                 }}
+                                className="text-orange-600 border-orange-300 hover:bg-orange-50"
                               >
                                 Route Here
                               </Button>
@@ -613,28 +804,28 @@ const BPMConsultationPanel = ({
                       </div>
                     </div>
 
-                    <Separator />
+                    <Separator className="my-8" />
                     
-                    <div>
-                      <Label>Routing Rules</Label>
-                      <div className="mt-2 space-y-2">
+                    <div className="bg-white p-6 rounded-lg border border-gray-200">
+                      <Label className="text-sm font-medium text-gray-700 mb-4 block">Routing Rules</Label>
+                      <div className="space-y-3">
                         {routingRules
                           .filter(rule => rule.from_department_id === departmentId)
                           .map(rule => (
-                            <div key={rule.id} className="p-3 border rounded-lg">
+                            <div key={rule.id} className="p-4 border border-gray-200 rounded-lg bg-blue-50">
                               <div className="flex items-center justify-between">
                                 <div>
-                                  <p className="font-medium">
+                                  <p className="font-medium text-gray-900">
                                     {departments.find(d => d.id === rule.to_department_id)?.name}
                                   </p>
-                                  <p className="text-sm text-gray-600">
+                                  <p className="text-sm text-gray-600 mt-1">
                                     Condition: {rule.routing_condition}
                                   </p>
                                   <p className="text-sm text-gray-600">
                                     Reason: {rule.routing_reason}
                                   </p>
                                 </div>
-                                <Badge variant="outline">Auto-route</Badge>
+                                <Badge variant="outline" className="bg-blue-100 text-blue-800 border-blue-300">Auto-route</Badge>
                               </div>
                             </div>
                           ))}
@@ -645,18 +836,18 @@ const BPMConsultationPanel = ({
               </TabsContent>
 
               {/* Audit Logs Tab */}
-              <TabsContent value="logs" className="space-y-4">
-                <div className="space-y-4">
-                  <h3 className="text-lg font-semibold">Consultation Audit Trail</h3>
+              <TabsContent value="logs" className="space-y-6">
+                <div className="space-y-6">
+                  <h3 className="text-xl font-semibold text-gray-900">Consultation Audit Trail</h3>
                   
                   {consultationLogs.length > 0 ? (
-                    <div className="space-y-3">
+                    <div className="space-y-4">
                       {consultationLogs.map((log) => (
-                        <div key={log.id} className="p-3 border rounded-lg">
+                        <div key={log.id} className="p-4 bg-white border border-gray-200 rounded-lg shadow-sm">
                           <div className="flex items-start justify-between">
                             <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-2">
-                                <Badge variant="outline">
+                              <div className="flex items-center gap-3 mb-3">
+                                <Badge variant="outline" className="bg-gray-100 text-gray-800">
                                   {log.action_type.replace(/_/g, ' ')}
                                 </Badge>
                                 <span className="text-sm text-gray-500">
@@ -665,11 +856,11 @@ const BPMConsultationPanel = ({
                               </div>
                               
                               {log.notes && (
-                                <p className="text-sm text-gray-700 mb-2">{log.notes}</p>
+                                <p className="text-sm text-gray-700 mb-3">{log.notes}</p>
                               )}
                               
                               {log.action_details && (
-                                <div className="text-xs text-gray-600 bg-gray-50 p-2 rounded">
+                                <div className="text-xs text-gray-600 bg-gray-50 p-3 rounded border">
                                   <pre className="whitespace-pre-wrap">
                                     {JSON.stringify(log.action_details, null, 2)}
                                   </pre>
@@ -677,7 +868,7 @@ const BPMConsultationPanel = ({
                               )}
                               
                               {log.previous_department_id && log.new_department_id && (
-                                <div className="flex items-center gap-2 mt-2 text-sm text-gray-600">
+                                <div className="flex items-center gap-2 mt-3 text-sm text-gray-600">
                                   <Building2 className="h-4 w-4" />
                                   <span>
                                     Routed from {departments.find(d => d.id === log.previous_department_id)?.name} 
@@ -687,12 +878,12 @@ const BPMConsultationPanel = ({
                               )}
                             </div>
                             
-                            <div className="text-right text-sm text-gray-500">
+                            <div className="text-right text-sm text-gray-500 ml-4">
                               {log.doctor_name && (
-                                <div>Dr. {log.doctor_name}</div>
+                                <div className="font-medium">Dr. {log.doctor_name}</div>
                               )}
                               {log.consultation_duration_minutes && (
-                                <div>{log.consultation_duration_minutes} min</div>
+                                <div className="text-blue-600">{log.consultation_duration_minutes} min</div>
                               )}
                             </div>
                           </div>
@@ -700,8 +891,10 @@ const BPMConsultationPanel = ({
                       ))}
                     </div>
                   ) : (
-                    <div className="text-center py-8 text-gray-500">
-                      No consultation logs available
+                    <div className="text-center py-12 text-gray-500 bg-white border border-gray-200 rounded-lg">
+                      <FileText className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                      <p className="text-lg">No consultation logs available</p>
+                      <p className="text-sm">Audit logs will appear here as actions are performed</p>
                     </div>
                   )}
                 </div>
