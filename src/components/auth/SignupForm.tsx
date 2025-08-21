@@ -79,7 +79,7 @@ export default function SignupForm() {
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 w-full max-w-sm">
       <div className="space-y-2">
         <Label htmlFor="name">Full Name</Label>
-        <Input id="name" placeholder="Dr. John Doe" {...register("name")} />
+        <Input id="name" placeholder="Enter your full name" {...register("name")} />
         {errors.name && (
           <p className="text-sm text-red-500">{errors.name.message}</p>
         )}

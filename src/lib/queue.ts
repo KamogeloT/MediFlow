@@ -1,11 +1,27 @@
 import { supabase } from "./supabase";
 
+// Priority lookup interface
+export interface QueuePriority {
+  id: number;
+  code: string;
+  name: string;
+  description: string;
+  wait_time_minutes: number;
+  color: string;
+  sort_order: number;
+  is_active: boolean;
+}
+
 export interface QueueItem {
   id: string;
   patient_id?: string; // Made optional for walk-in patients
   patient_name: string;
   status: "waiting" | "in-consultation" | "completed";
-  priority: "low" | "normal" | "high" | "urgent";
+  priority_id: number;
+  priority_code: string;
+  priority_name: string;
+  priority_color: string;
+  wait_time_minutes: number;
   added_at: string;
   checked_in_at?: string;
   completed_at?: string;
@@ -22,12 +38,72 @@ export interface QueueItem {
 export interface AddToQueueData {
   patient_id?: string; // Optional for walk-in patients
   patient_name: string;
-  priority: "low" | "normal" | "high" | "urgent";
+  priority_code: "low" | "normal" | "high" | "urgent"; // Changed from priority to priority_code
   notes?: string;
   doctor_id?: string;
   department_id?: string;
   appointment_time?: string;
   is_walk_in?: boolean; // Flag to identify walk-in patients
+}
+
+// Helper function to get priority ID from code
+export async function getPriorityId(priorityCode: string): Promise<number> {
+  try {
+    const { data, error } = await supabase.rpc('get_queue_priority_id', {
+      priority_code: priorityCode
+    });
+    
+    if (error) {
+      console.warn("Failed to get priority ID, defaulting to normal:", error);
+      // Default to normal priority (ID: 3)
+      return 3;
+    }
+    
+    return data || 3;
+  } catch (error) {
+    console.warn("Error getting priority ID, defaulting to normal:", error);
+    return 3; // Default to normal priority
+  }
+}
+
+// Helper function to get priority code from ID
+export async function getPriorityCode(priorityId: number): Promise<string> {
+  try {
+    const { data, error } = await supabase.rpc('get_queue_priority_code', {
+      priority_id: priorityId
+    });
+    
+    if (error) {
+      console.warn("Failed to get priority code, defaulting to normal:", error);
+      return 'normal';
+    }
+    
+    return data || 'normal';
+  } catch (error) {
+    console.warn("Error getting priority code, defaulting to normal:", error);
+    return 'normal';
+  }
+}
+
+// Helper function to get all active priorities
+export async function getActivePriorities(): Promise<QueuePriority[]> {
+  try {
+    const { data, error } = await supabase
+      .from('queue_priorities')
+      .select('*')
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true });
+    
+    if (error) {
+      console.error("Failed to fetch priorities:", error);
+      return [];
+    }
+    
+    return data || [];
+  } catch (error) {
+    console.error("Error fetching priorities:", error);
+    return [];
+  }
 }
 
 // Helper function to ensure authentication
@@ -104,12 +180,11 @@ export async function addToQueue(data: AddToQueueData): Promise<QueueItem> {
     const queueData = {
       patient_id: data.patient_id || null, // null for walk-in patients
       patient_name: data.patient_name,
-      priority: data.priority,
-      notes: data.notes,
-      doctor_id: data.doctor_id,
-      department_id: data.department_id,
-      appointment_time: data.appointment_time,
-      status: "waiting" as const,
+      priority_id: await getPriorityId(data.priority_code), // Use the new function
+      priority_code: data.priority_code,
+      priority_name: await getPriorityCode(await getPriorityId(data.priority_code)), // Get name from ID
+      priority_color: await getPriorityCode(await getPriorityId(data.priority_code)), // Get color from ID
+      wait_time_minutes: 0, // Default value, will be updated by trigger
       added_at: new Date().toISOString(),
       is_walk_in: data.is_walk_in || !data.patient_id, // true if no patient_id or explicitly marked
       is_appointment_based: !!data.appointment_time, // Set based on whether appointment_time exists
@@ -158,7 +233,7 @@ export async function fetchQueueByDepartment(departmentId: string): Promise<Queu
         departments!inner(name)
       `)
       .eq("department_id", departmentId)
-      .order("priority", { ascending: false })
+      .order("priority_id", { ascending: false }) // Changed from priority to priority_id
       .order("added_at", { ascending: true });
 
     if (error) {
@@ -243,7 +318,7 @@ async function fetchQueueByDoctorFallback(doctorId: string): Promise<QueueItem[]
         `)
         .eq("department_id", doctorProfile.department_id)
         .neq("status", "completed")
-        .order("priority", { ascending: false })
+        .order("priority_id", { ascending: false }) // Changed from priority to priority_id
         .order("added_at", { ascending: true });
 
       if (queueError) {
@@ -270,7 +345,7 @@ async function fetchQueueByDoctorFallback(doctorId: string): Promise<QueueItem[]
         `)
       .in("department_id", departmentIds)
       .neq("status", "completed")
-      .order("priority", { ascending: false })
+      .order("priority_id", { ascending: false }) // Changed from priority to priority_id
       .order("added_at", { ascending: true });
 
     if (queueError) {
@@ -304,7 +379,7 @@ export async function fetchAllQueue(): Promise<QueueItem[]> {
         profiles!inner(full_name),
         departments!inner(name)
       `)
-      .order("priority", { ascending: false })
+      .order("priority_id", { ascending: false }) // Changed from priority to priority_id
       .order("added_at", { ascending: true });
 
     if (error) {
@@ -376,11 +451,14 @@ export async function removeFromQueue(queueId: string): Promise<void> {
   }
 }
 
-export async function calculateEstimatedWaitTime(departmentId: string, priority: QueueItem["priority"]): Promise<number> {
+export async function calculateEstimatedWaitTime(departmentId: string, priorityCode: string): Promise<number> {
   // Get current queue for department
   const queue = await fetchQueueByDepartment(departmentId);
   const waitingPatients = queue.filter(item => item.status === "waiting");
   
+  // Get priority ID from code
+  const priorityId = await getPriorityId(priorityCode);
+
   // Base wait times (in minutes) for each priority
   const baseWaitTimes = {
     urgent: 0,
@@ -390,10 +468,10 @@ export async function calculateEstimatedWaitTime(departmentId: string, priority:
   };
 
   // Calculate position-based wait time
-  const position = waitingPatients.findIndex(item => item.priority === priority);
+  const position = waitingPatients.findIndex(item => item.priority_id === priorityId);
   const averageConsultationTime = 20; // minutes
   
-  return baseWaitTimes[priority] + (position * averageConsultationTime);
+  return baseWaitTimes[priorityCode as keyof typeof baseWaitTimes] + (position * averageConsultationTime);
 }
 
 export async function getQueueStats(departmentId?: string): Promise<{
@@ -543,14 +621,14 @@ export async function updateEstimatedWaitTime(queueId: string): Promise<void> {
   try {
     const { data: queueItem } = await supabase
       .from("queue")
-      .select("department_id, priority")
+      .select("department_id, priority_code") // Changed from priority to priority_code
       .eq("id", queueId)
       .single();
 
-    if (queueItem && queueItem.department_id && queueItem.priority) {
+    if (queueItem && queueItem.department_id && queueItem.priority_code) {
       const estimatedWaitTime = await calculateEstimatedWaitTime(
         queueItem.department_id,
-        queueItem.priority
+        queueItem.priority_code
       );
 
       await supabase
@@ -606,14 +684,14 @@ export async function getPastAppointments(doctorId: string, daysBack: number = 3
 export async function addWalkInToQueue(
   patientId: string, 
   departmentId: string, 
-  priority: string = 'medium', 
+  priorityCode: string = 'normal', 
   notes?: string
 ): Promise<string> {
   try {
     const { data, error } = await supabase.rpc('add_walk_in_to_queue', {
       p_patient_id: patientId,
       p_department_id: departmentId,
-      p_priority: priority,
+      p_priority_code: priorityCode,
       p_notes: notes || null
     });
 

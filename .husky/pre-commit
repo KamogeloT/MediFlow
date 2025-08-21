@@ -1,0 +1,46 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+echo "🔍 Running pre-commit checks..."
+
+# Run TypeScript type checking
+echo "📝 Checking TypeScript types..."
+npm run build-no-errors || {
+    echo "❌ TypeScript compilation failed. Please fix type errors before committing."
+    exit 1
+}
+
+# Run linting
+echo "🧹 Running ESLint..."
+npm run lint || {
+    echo "❌ ESLint found issues. Please fix them before committing."
+    exit 1
+}
+
+# Run tests
+echo "🧪 Running tests..."
+npm test || {
+    echo "❌ Tests failed. Please fix failing tests before committing."
+    exit 1
+}
+
+# Check for console.log statements (excluding console.error and console.warn)
+echo "🔍 Checking for console.log statements..."
+CONSOLE_LOGS=$(git diff --cached --name-only | xargs grep -l "console\.log" 2>/dev/null || true)
+if [ ! -z "$CONSOLE_LOGS" ]; then
+    echo "⚠️  Warning: Found console.log statements in staged files:"
+    echo "$CONSOLE_LOGS"
+    echo "Consider removing them for production code."
+fi
+
+# Check for TODO comments
+echo "📋 Checking for TODO comments..."
+TODO_FILES=$(git diff --cached --name-only | xargs grep -l "TODO" 2>/dev/null || true)
+if [ ! -z "$TODO_FILES" ]; then
+    echo "⚠️  Warning: Found TODO comments in staged files:"
+    echo "$TODO_FILES"
+    echo "Consider addressing these before committing."
+fi
+
+echo "✅ Pre-commit checks passed!"
+echo "�� Ready to commit!"

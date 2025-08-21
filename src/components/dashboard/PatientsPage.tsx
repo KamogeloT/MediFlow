@@ -13,7 +13,8 @@ import {
   Calendar,
   Plus,
   Filter,
-  Download
+  Download,
+  Shield
 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { fetchAllPatients, type Patient } from "@/lib/patients";
@@ -57,6 +58,7 @@ const PatientsPage = () => {
 
     const filtered = patients.filter(patient =>
       patient.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      patient.sa_id_number?.includes(searchQuery) ||
       patient.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       patient.phone?.toLowerCase().includes(searchQuery.toLowerCase())
     );
@@ -147,7 +149,7 @@ const PatientsPage = () => {
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
               <Input
-                placeholder="Search patients by name, email, or phone..."
+                placeholder="Search patients by name, ID number, email, or phone..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10"
@@ -228,6 +230,12 @@ const PatientsPage = () => {
                           )}
                         </div>
                         <div className="flex items-center gap-6 text-sm text-gray-600">
+                          {patient.sa_id_number && (
+                            <div className="flex items-center gap-2 font-mono font-medium text-blue-600">
+                              <Shield className="w-4 h-4" />
+                              {patient.sa_id_number}
+                            </div>
+                          )}
                           {patient.email && (
                             <div className="flex items-center gap-2">
                               <Mail className="w-4 h-4" />

@@ -43,7 +43,7 @@ interface BPMConsultationPanelProps {
 
 const BPMConsultationPanel = ({
   queueItemId,
-  patientName = "John Doe",
+          patientName = selectedQueueItem?.patient_name || "Patient",
   patientAge = 45,
   patientGender = "Male",
   currentVisitReason = "Regular checkup",

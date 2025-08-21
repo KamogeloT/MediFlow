@@ -234,6 +234,130 @@ const DoctorView = () => {
     }
   };
 
+  // Start consultation
+  const startConsultation = () => {
+    if (selectedQueueItem) {
+      // Update queue item status to 'in-progress'
+      setQueue(prev => prev.map(item => 
+        item.id === selectedQueueItem.id 
+          ? { ...item, status: 'in-progress' }
+          : item
+      ));
+      setSelectedQueueItem(prev => prev ? { ...prev, status: 'in-progress' } : null);
+    }
+  };
+
+  // Check in patient
+  const checkInPatient = () => {
+    if (selectedQueueItem) {
+      // Update queue item status to 'checked-in'
+      setQueue(prev => prev.map(item => 
+        item.id === selectedQueueItem.id 
+          ? { ...item, status: 'checked-in' }
+          : item
+      ));
+      setSelectedQueueItem(prev => prev ? { ...prev, status: 'checked-in' } : null);
+    }
+  };
+
+  // Start patient consultation
+  const startPatientConsultation = () => {
+    if (selectedQueueItem) {
+      // Update queue item status to 'consulting'
+      setQueue(prev => prev.map(item => 
+        item.id === selectedQueueItem.id 
+          ? { ...item, status: 'consulting' }
+          : item
+      ));
+      setSelectedQueueItem(prev => prev ? { ...prev, status: 'consulting' } : null);
+    }
+  };
+
+  // Route patient
+  const routePatient = () => {
+    // This would integrate with the routing system
+    console.log('Routing patient to another department');
+  };
+
+  // Save draft
+  const saveDraft = () => {
+    // Save current consultation state as draft
+    console.log('Saving consultation draft');
+  };
+
+  // Save and continue
+  const saveAndContinue = () => {
+    // Save current consultation state
+    console.log('Saving consultation and continuing');
+  };
+
+  // Discard changes
+  const discardChanges = () => {
+    // Reset form fields to original values
+    setConsultationNotes("");
+    setVitals({ bp: "", hr: "", temp: "", spo2: "" });
+    setReasonForVisit("Regular checkup");
+    console.log('Discarding unsaved changes');
+  };
+
+  // Upload file
+  const uploadFile = () => {
+    // This would open file upload dialog
+    console.log('Opening file upload dialog');
+  };
+
+  // Open attachment
+  const openAttachment = (filename: string) => {
+    // This would open the attachment
+    console.log('Opening attachment:', filename);
+  };
+
+  // Relink to queue
+  const relinkToQueue = () => {
+    // This would relink the patient to the queue
+    console.log('Relinking patient to queue');
+  };
+
+  // View audit log
+  const viewAuditLog = () => {
+    // This would show the audit log
+    console.log('Showing audit log');
+  };
+
+  // Create invoice
+  const createInvoice = () => {
+    // Create a new invoice
+    setCurrentInvoice({
+      id: `invoice-${Date.now()}`,
+      items: [],
+      total: 0
+    });
+  };
+
+  // View invoice details
+  const viewInvoiceDetails = () => {
+    // This would show invoice details
+    console.log('Showing invoice details');
+  };
+
+  // Manage billing
+  const manageBilling = () => {
+    // Navigate to billing tab
+    const billingTab = document.querySelector('[data-value="billing"]') as HTMLElement;
+    if (billingTab) {
+      billingTab.click();
+    }
+  };
+
+  // Start billing
+  const startBilling = () => {
+    // Navigate to billing tab
+    const billingTab = document.querySelector('[data-value="billing"]') as HTMLElement;
+    if (billingTab) {
+      billingTab.click();
+    }
+  };
+
   return (
     <div className="min-h-screen bg-muted/30">
       {/* Top Bar */}
@@ -247,7 +371,7 @@ const DoctorView = () => {
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" className="rounded-2xl" onClick={refreshQueue}>Refresh Queue</Button>
-            <Button className="rounded-2xl">Start Consultation</Button>
+            <Button className="rounded-2xl" onClick={startConsultation}>Start Consultation</Button>
           </div>
         </div>
       </header>
@@ -353,8 +477,8 @@ const DoctorView = () => {
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Button variant="outline" className="rounded-2xl">Check In</Button>
-                      <Button className="rounded-2xl">Start</Button>
+                      <Button variant="outline" className="rounded-2xl" onClick={checkInPatient}>Check In</Button>
+                      <Button className="rounded-2xl" onClick={startPatientConsultation}>Start</Button>
                     </div>
                   </div>
                 </CardContent>
@@ -425,8 +549,8 @@ const DoctorView = () => {
                           </AlertDescription>
                         </Alert>
                         <div className="flex gap-2">
-                          <Button variant="outline" className="rounded-2xl">Relink to Queue</Button>
-                          <Button variant="ghost" className="rounded-2xl">View Audit Log</Button>
+                          <Button variant="outline" className="rounded-2xl" onClick={relinkToQueue}>Relink to Queue</Button>
+                          <Button variant="ghost" className="rounded-2xl" onClick={viewAuditLog}>View Audit Log</Button>
                         </div>
                       </CardContent>
                     </Card>
@@ -561,15 +685,15 @@ const DoctorView = () => {
                                 >
                                   Finalize Invoice
                                 </Button>
-                                <Button size="sm" variant="outline" className="rounded-xl">
-                                  View Details
-                                </Button>
+                                                              <Button size="sm" variant="outline" className="rounded-xl" onClick={viewInvoiceDetails}>
+                                View Details
+                              </Button>
                               </div>
                             </>
                           ) : (
                             <div className="text-center py-4 text-muted-foreground">
                               <p>No active invoice</p>
-                              <Button size="sm" className="mt-2 rounded-xl">
+                              <Button size="sm" className="mt-2 rounded-xl" onClick={createInvoice}>
                                 Create Invoice
                               </Button>
                             </div>
@@ -639,8 +763,8 @@ const DoctorView = () => {
                         </div>
                       </div>
                       <div className="flex gap-2">
-                        <Button className="rounded-2xl">Route Patient</Button>
-                        <Button variant="outline" className="rounded-2xl">Save Draft</Button>
+                        <Button className="rounded-2xl" onClick={routePatient}>Route Patient</Button>
+                        <Button variant="outline" className="rounded-2xl" onClick={saveDraft}>Save Draft</Button>
                       </div>
                     </CardContent>
                   </Card>
@@ -707,7 +831,7 @@ const DoctorView = () => {
                       <Button 
                         size="sm" 
                         className="w-full rounded-xl"
-                        onClick={() => document.querySelector('[data-value="billing"]')?.click()}
+                        onClick={manageBilling}
                       >
                         Manage Billing
                       </Button>
@@ -719,7 +843,7 @@ const DoctorView = () => {
                         size="sm" 
                         variant="outline" 
                         className="w-full rounded-xl"
-                        onClick={() => document.querySelector('[data-value="billing"]')?.click()}
+                        onClick={startBilling}
                       >
                         Start Billing
                       </Button>
@@ -735,13 +859,13 @@ const DoctorView = () => {
                 <CardContent className="space-y-2 text-sm">
                   <div className="flex items-center justify-between">
                     <span>Referral.pdf</span>
-                    <Button size="sm" variant="outline" className="rounded-xl">Open</Button>
+                    <Button size="sm" variant="outline" className="rounded-xl" onClick={() => openAttachment('Referral.pdf')}>Open</Button>
                   </div>
                   <div className="flex items-center justify-between">
                     <span>ECG.png</span>
-                    <Button size="sm" variant="outline" className="rounded-xl">Open</Button>
+                    <Button size="sm" variant="outline" className="rounded-xl" onClick={() => openAttachment('ECG.png')}>Open</Button>
                   </div>
-                  <Button className="w-full rounded-2xl mt-2" variant="secondary">
+                  <Button className="w-full rounded-2xl mt-2" variant="secondary" onClick={uploadFile}>
                     <Upload className="h-4 w-4 mr-2" />
                     Upload
                   </Button>
@@ -764,10 +888,10 @@ const DoctorView = () => {
       <footer className="sticky bottom-0 z-30 border-t bg-white/80 backdrop-blur">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="text-sm text-muted-foreground">Auto-save is on • Last saved 2 mins ago</div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" className="rounded-2xl">Discard</Button>
-            <Button className="rounded-2xl">Save & Continue</Button>
-          </div>
+                            <div className="flex items-center gap-2">
+                    <Button variant="outline" className="rounded-2xl" onClick={discardChanges}>Discard</Button>
+                    <Button className="rounded-2xl" onClick={saveAndContinue}>Save & Continue</Button>
+                  </div>
         </div>
       </footer>
     </div>

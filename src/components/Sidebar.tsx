@@ -9,18 +9,25 @@ import {
   ChevronRight,
   Home,
   Users,
-  Settings
+  Settings,
+  DollarSign
 } from "lucide-react";
 
 interface SidebarProps {
-  currentView: "registration" | "appointments" | "queue" | "assignments" | "patients";
-  onViewChange: (view: "registration" | "appointments" | "queue" | "assignments" | "patients") => void;
+  currentView: "dashboard" | "registration" | "appointments" | "queue" | "assignments" | "patients" | "billing";
+  onViewChange: (view: "dashboard" | "registration" | "appointments" | "queue" | "assignments" | "patients" | "billing") => void;
   isOpen: boolean;
   onToggle: () => void;
 }
 
 const Sidebar = ({ currentView, onViewChange, isOpen, onToggle }: SidebarProps) => {
   const navigationItems = [
+    {
+      id: "dashboard" as const,
+      label: "Dashboard",
+      icon: Home,
+      description: "Overview and quick actions"
+    },
     {
       id: "registration" as const,
       label: "Patient Registration",
@@ -50,6 +57,12 @@ const Sidebar = ({ currentView, onViewChange, isOpen, onToggle }: SidebarProps) 
       label: "Doctor Assignments",
       icon: Users,
       description: "Manage doctor departments"
+    },
+    {
+      id: "billing" as const,
+      label: "Billing",
+      icon: DollarSign,
+      description: "Manage billing and invoices"
     }
   ];
 
