@@ -134,7 +134,7 @@ const PatientQueue = ({ onCheckIn }: PatientQueueProps) => {
         // First, let's check what department this doctor is assigned to
         const { data: doctorProfile, error: profileError } = await supabase
           .from('profiles')
-          .select('department_id, departments(name)')
+          .select('department_id')
           .eq('id', user.id)
           .single();
         
@@ -142,7 +142,7 @@ const PatientQueue = ({ onCheckIn }: PatientQueueProps) => {
           console.error('Failed to fetch doctor profile:', profileError);
         } else {
           console.log('Doctor profile:', doctorProfile);
-          console.log('Doctor assigned to department:', (doctorProfile as any)?.departments?.name, 'ID:', doctorProfile?.department_id);
+          console.log('Doctor assigned to department ID:', doctorProfile?.department_id);
         }
         
         entries = await fetchQueueByDoctor(user.id);

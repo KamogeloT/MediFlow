@@ -40,7 +40,7 @@ const AddToQueueModal = ({
   patientName: initialPatientName,
   onSuccess,
 }: AddToQueueModalProps) => {
-  const [priority, setPriority] = useState<"low" | "normal" | "high" | "urgent">("normal");
+  const [priorityCode, setPriorityCode] = useState<"low" | "normal" | "high" | "urgent">("normal");
   const [notes, setNotes] = useState("");
   const [departmentId, setDepartmentId] = useState("");
   const [doctorId, setDoctorId] = useState("");
@@ -163,7 +163,7 @@ const AddToQueueModal = ({
       const queueData: AddToQueueData = {
         patient_id: selectedPatient.id,
         patient_name: selectedPatient.full_name,
-        priority,
+        priority_code: priorityCode,
         notes: notes.trim() || undefined,
         department_id: departmentId,
         doctor_id: doctorId === "none" ? undefined : doctorId || undefined,
@@ -173,14 +173,14 @@ const AddToQueueModal = ({
       
       toast({
         title: "Patient added to queue",
-        description: `${selectedPatient.full_name} has been added to the queue with ${priority} priority${selectedDepartment ? ` in ${selectedDepartment.name}` : ''}.`,
+        description: `${selectedPatient.full_name} has been added to the queue with ${priorityCode} priority${selectedDepartment ? ` in ${selectedDepartment.name}` : ''}.`,
       });
 
       onSuccess?.();
       onClose();
       
       // Reset form
-      setPriority("normal");
+      setPriorityCode("normal");
       setNotes("");
       setDepartmentId("");
       setDoctorId("");
@@ -199,7 +199,7 @@ const AddToQueueModal = ({
 
   const handleClose = () => {
     // Reset form when closing
-    setPriority("normal");
+    setPriorityCode("normal");
     setNotes("");
     setDepartmentId("");
     setDoctorId("");
@@ -245,7 +245,7 @@ const AddToQueueModal = ({
               <PopoverContent className="w-full p-0" align="start">
                 <Command>
                   <CommandInput
-                    placeholder="Search patients by name, email, or phone..."
+                    placeholder="Search patients by name, ID number, email, or phone..."
                     value={patientSearchQuery}
                     onValueChange={setPatientSearchQuery}
                   />
@@ -294,7 +294,7 @@ const AddToQueueModal = ({
                 <AlertTriangle className="w-4 h-4" />
                 Priority Level
               </Label>
-              <Select value={priority} onValueChange={(value: any) => setPriority(value)}>
+              <Select value={priorityCode} onValueChange={(value: any) => setPriorityCode(value)}>
                 <SelectTrigger className="h-10">
                   <SelectValue placeholder="Select priority" />
                 </SelectTrigger>

@@ -4,11 +4,13 @@ import { useAuth } from "@/lib/auth";
 import DashboardHeader from "./DashboardHeader";
 import Sidebar from "./Sidebar";
 import FrontDeskView from "./dashboard/FrontDeskView";
+import FrontDeskDashboard from "./dashboard/FrontDeskDashboard";
 import DoctorView from "./dashboard/DoctorView";
 import AppointmentsPage from "./dashboard/AppointmentsPage";
 import QueuePage from "./dashboard/QueuePage";
 import DoctorAssignmentsPage from "./dashboard/DoctorAssignmentsPage";
 import PatientsPage from "./dashboard/PatientsPage";
+// import { BillingPage } from "./dashboard/BillingPage";
 import { useToast } from "@/components/ui/use-toast";
 import { subscribeToPatients } from "@/lib/patients";
 import { notify } from "@/lib/notifications";
@@ -20,19 +22,22 @@ interface HomeProps {
   userAvatar?: string;
 }
 
-type ViewType = "registration" | "appointments" | "queue" | "assignments" | "patients";
+type ViewType = "dashboard" | "registration" | "appointments" | "queue" | "assignments" | "patients" | "billing";
 
 const Home = ({
   role,
-  userName = "Dr. John Doe",
+  userName,
   userAvatar = "https://api.dicebear.com/7.x/avataaars/svg?seed=doctor",
 }: HomeProps) => {
   const { signOut, user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [currentView, setCurrentView] = useState<ViewType>("registration");
+  const [currentView, setCurrentView] = useState<ViewType>("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [userDepartment, setUserDepartment] = useState<string | undefined>();
+
+  // Set default userName after user is available
+  const displayName = userName || user?.user_metadata?.full_name || user?.email || "User";
 
   const handleLogout = () => {
     signOut();
@@ -60,7 +65,7 @@ const Home = ({
           
           const { data: profile, error } = await supabase
             .from('profiles')
-            .select('department_id, departments(name)')
+            .select('department_id')
             .eq('id', user.id)
             .single();
 
@@ -74,12 +79,30 @@ const Home = ({
             });
           } else {
             console.log('Profile data:', profile);
-            if (profile?.departments && typeof profile.departments === 'object' && 'name' in profile.departments) {
-              const deptName = (profile.departments as any).name;
-              console.log('Setting department:', deptName);
-              setUserDepartment(deptName);
+            if (profile?.department_id) {
+              // Get department name separately
+              const { data: department, error: deptError } = await supabase
+                .from('departments')
+                .select('name')
+                .eq('id', profile.department_id)
+                .single();
+              
+              if (!deptError && department) {
+                console.log('Setting department:', department.name);
+                setUserDepartment(department.name);
+              } else {
+                console.log('Department not found in departments table');
+                setUserDepartment('Unknown Department');
+              }
             } else {
-              console.log('No department found or invalid format:', profile?.departments);
+              // For front-desk users, this might be normal
+              if (role === 'front-desk') {
+                console.log('Front-desk user - no specific department assigned (this is normal)');
+                setUserDepartment('All Departments');
+              } else {
+                console.log('No department assigned to user');
+                setUserDepartment('No Department');
+              }
             }
           }
         } catch (error) {
@@ -107,6 +130,8 @@ const Home = ({
   const renderContent = () => {
     if (role === "front-desk") {
       switch (currentView) {
+        case "dashboard":
+          return <FrontDeskDashboard />;
         case "registration":
           return (
             <FrontDeskView
@@ -124,15 +149,13 @@ const Home = ({
           return <DoctorAssignmentsPage />;
         case "patients":
           return <PatientsPage />;
+        case "billing":
+          return <div className="p-8 text-center">
+            <h2 className="text-2xl font-bold mb-4">Billing Module</h2>
+            <p className="text-gray-600">Billing functionality is being loaded...</p>
+          </div>;
         default:
-          return (
-            <FrontDeskView
-              onPatientRegistration={(data) =>
-                console.log("Patient registration:", data)
-              }
-              onQueueUpdate={(data) => console.log("Queue updated:", data)}
-            />
-          );
+          return <FrontDeskDashboard />;
       }
     } else {
       return <DoctorView />;
@@ -154,7 +177,7 @@ const Home = ({
       {/* Main Content */}
       <div className="flex-1 flex flex-col">
         <DashboardHeader
-          userName={userName}
+          userName={displayName}
           userRole={role}
           userAvatar={userAvatar}
           userDepartment={userDepartment}

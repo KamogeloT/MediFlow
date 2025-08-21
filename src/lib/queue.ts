@@ -1,11 +1,27 @@
 import { supabase } from "./supabase";
 
+// Priority lookup interface
+export interface QueuePriority {
+  id: number;
+  code: string;
+  name: string;
+  description: string;
+  wait_time_minutes: number;
+  color: string;
+  sort_order: number;
+  is_active: boolean;
+}
+
 export interface QueueItem {
   id: string;
   patient_id?: string; // Made optional for walk-in patients
   patient_name: string;
   status: "waiting" | "in-consultation" | "completed";
-  priority: "low" | "normal" | "high" | "urgent";
+  priority_id: number;
+  priority_code: string;
+  priority_name: string;
+  priority_color: string;
+  wait_time_minutes: number;
   added_at: string;
   checked_in_at?: string;
   completed_at?: string;
@@ -22,12 +38,72 @@ export interface QueueItem {
 export interface AddToQueueData {
   patient_id?: string; // Optional for walk-in patients
   patient_name: string;
-  priority: "low" | "normal" | "high" | "urgent";
+  priority_code: "low" | "normal" | "high" | "urgent"; // Changed from priority to priority_code
   notes?: string;
   doctor_id?: string;
   department_id?: string;
   appointment_time?: string;
   is_walk_in?: boolean; // Flag to identify walk-in patients
+}
+
+// Helper function to get priority ID from code
+export async function getPriorityId(priorityCode: string): Promise<number> {
+  try {
+    const { data, error } = await supabase.rpc('get_queue_priority_id', {
+      priority_code: priorityCode
+    });
+    
+    if (error) {
+      console.warn("Failed to get priority ID, defaulting to normal:", error);
+      // Default to normal priority (ID: 3)
+      return 3;
+    }
+    
+    return data || 3;
+  } catch (error) {
+    console.warn("Error getting priority ID, defaulting to normal:", error);
+    return 3; // Default to normal priority
+  }
+}
+
+// Helper function to get priority code from ID
+export async function getPriorityCode(priorityId: number): Promise<string> {
+  try {
+    const { data, error } = await supabase.rpc('get_queue_priority_code', {
+      priority_id: priorityId
+    });
+    
+    if (error) {
+      console.warn("Failed to get priority code, defaulting to normal:", error);
+      return 'normal';
+    }
+    
+    return data || 'normal';
+  } catch (error) {
+    console.warn("Error getting priority code, defaulting to normal:", error);
+    return 'normal';
+  }
+}
+
+// Helper function to get all active priorities
+export async function getActivePriorities(): Promise<QueuePriority[]> {
+  try {
+    const { data, error } = await supabase
+      .from('queue_priorities')
+      .select('*')
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true });
+    
+    if (error) {
+      console.error("Failed to fetch priorities:", error);
+      return [];
+    }
+    
+    return data || [];
+  } catch (error) {
+    console.error("Error fetching priorities:", error);
+    return [];
+  }
 }
 
 // Helper function to ensure authentication
@@ -104,14 +180,15 @@ export async function addToQueue(data: AddToQueueData): Promise<QueueItem> {
     const queueData = {
       patient_id: data.patient_id || null, // null for walk-in patients
       patient_name: data.patient_name,
-      priority: data.priority,
-      notes: data.notes,
-      doctor_id: data.doctor_id,
-      department_id: data.department_id,
-      appointment_time: data.appointment_time,
-      status: "waiting" as const,
+      priority_id: await getPriorityId(data.priority_code), // Use the new function
+      priority_code: data.priority_code,
+      priority_name: await getPriorityCode(await getPriorityId(data.priority_code)), // Get name from ID
+      priority_color: await getPriorityCode(await getPriorityId(data.priority_code)), // Get color from ID
+      wait_time_minutes: 0, // Default value, will be updated by trigger
       added_at: new Date().toISOString(),
       is_walk_in: data.is_walk_in || !data.patient_id, // true if no patient_id or explicitly marked
+      is_appointment_based: !!data.appointment_time, // Set based on whether appointment_time exists
+      estimated_wait_time: 0 // Default value
     };
 
     const { data: queueItem, error } = await supabase
@@ -124,6 +201,9 @@ export async function addToQueue(data: AddToQueueData): Promise<QueueItem> {
       console.error("Queue insertion error:", error);
       throw error;
     }
+
+    // The workflow state and audit logs are automatically created by database triggers
+    console.log("Queue item created with automatic workflow logging:", queueItem.id);
 
     return {
       ...queueItem,
@@ -149,11 +229,11 @@ export async function fetchQueueByDepartment(departmentId: string): Promise<Queu
       .from("queue")
       .select(`
         *,
-        profiles(full_name),
-        departments(name)
+        profiles!inner(full_name),
+        departments!inner(name)
       `)
       .eq("department_id", departmentId)
-      .order("priority", { ascending: false })
+      .order("priority_id", { ascending: false }) // Changed from priority to priority_id
       .order("added_at", { ascending: true });
 
     if (error) {
@@ -174,47 +254,111 @@ export async function fetchQueueByDepartment(departmentId: string): Promise<Queu
 
 export async function fetchQueueByDoctor(doctorId: string): Promise<QueueItem[]> {
   try {
-    // Ensure user is authenticated
     const user = await ensureAuthenticated();
-    
     if (!user) {
       throw new Error("Authentication required. Please log in again.");
     }
 
-    // First, get the doctor's assigned department
-    const { data: doctorProfile, error: profileError } = await supabase
-      .from("profiles")
-      .select("department_id")
-      .eq("id", doctorId)
-      .single();
+    console.log('fetchQueueByDoctor called for doctor:', doctorId);
 
-    if (profileError || !doctorProfile?.department_id) {
-      console.error("Failed to fetch doctor's department:", profileError);
-      throw new Error("Doctor's department not found");
-    }
-
-    // Then fetch all queue items in the doctor's department
-    const { data, error } = await supabase
-      .from("queue")
-      .select(`
-        *,
-        departments(name)
-      `)
-      .eq("department_id", doctorProfile.department_id)
-      .order("priority", { ascending: false })
-      .order("added_at", { ascending: true });
+    // Use the new database function that properly separates appointments from queue items
+    const { data, error } = await supabase.rpc('get_current_queue_by_doctor', {
+      p_doctor_id: doctorId
+    });
 
     if (error) {
-      console.error("fetchQueueByDoctor error:", error);
-      throw error;
+      console.error("fetchQueueByDoctor RPC error:", error);
+      
+      // Fallback to manual query if RPC function doesn't exist yet
+      console.log('Falling back to manual query...');
+      return await fetchQueueByDoctorFallback(doctorId);
     }
 
-    return (data || []).map(item => ({
+    console.log('Queue fetched successfully via RPC:', data?.length, 'items');
+    return data || [];
+  } catch (error) {
+    console.error("fetchQueueByDoctor error:", error);
+    // Fallback to manual query
+    return await fetchQueueByDoctorFallback(doctorId);
+  }
+}
+
+// Fallback method for fetching queue by doctor
+async function fetchQueueByDoctorFallback(doctorId: string): Promise<QueueItem[]> {
+  try {
+    console.log('Using fallback method to fetch queue by doctor');
+    
+    // Get all departments the doctor is assigned to
+    const { data: deptAssignments, error: deptError } = await supabase
+      .from("doctor_departments")
+      .select("department_id")
+      .eq("doctor_id", doctorId);
+
+    if (deptError || !deptAssignments || deptAssignments.length === 0) {
+      console.log('No department assignments found, checking profiles.department_id...');
+      
+      // Fallback to profiles.department_id
+      const { data: doctorProfile, error: profileError } = await supabase
+        .from("profiles")
+        .select("department_id")
+        .eq("id", doctorId)
+        .single();
+        
+      if (profileError || !doctorProfile?.department_id) {
+        console.error("Failed to fetch doctor's department:", profileError);
+        throw new Error("Doctor's department not found");
+      }
+
+      // Fetch queue for the single department
+      const { data: queueData, error: queueError } = await supabase
+        .from("queue")
+        .select(`
+          *,
+          departments!inner(name)
+        `)
+        .eq("department_id", doctorProfile.department_id)
+        .neq("status", "completed")
+        .order("priority_id", { ascending: false }) // Changed from priority to priority_id
+        .order("added_at", { ascending: true });
+
+      if (queueError) {
+        console.error("Manual queue fetch error:", queueError);
+        throw queueError;
+      }
+
+      return (queueData || []).map(item => ({
+        ...item,
+        department_name: item.departments?.name,
+      }));
+    }
+
+    // Get department IDs
+    const departmentIds = deptAssignments.map(d => d.department_id);
+    console.log('Doctor assigned to departments:', departmentIds);
+
+    // Fetch queue for all assigned departments
+    const { data: queueData, error: queueError } = await supabase
+      .from("queue")
+              .select(`
+          *,
+          departments!inner(name)
+        `)
+      .in("department_id", departmentIds)
+      .neq("status", "completed")
+      .order("priority_id", { ascending: false }) // Changed from priority to priority_id
+      .order("added_at", { ascending: true });
+
+    if (queueError) {
+      console.error("Manual queue fetch error:", queueError);
+      throw queueError;
+    }
+
+    return (queueData || []).map(item => ({
       ...item,
       department_name: item.departments?.name,
     }));
   } catch (error) {
-    console.error("fetchQueueByDoctor error:", error);
+    console.error("fetchQueueByDoctorFallback error:", error);
     throw error;
   }
 }
@@ -232,10 +376,10 @@ export async function fetchAllQueue(): Promise<QueueItem[]> {
       .from("queue")
       .select(`
         *,
-        profiles(full_name),
-        departments(name)
+        profiles!inner(full_name),
+        departments!inner(name)
       `)
-      .order("priority", { ascending: false })
+      .order("priority_id", { ascending: false }) // Changed from priority to priority_id
       .order("added_at", { ascending: true });
 
     if (error) {
@@ -307,11 +451,14 @@ export async function removeFromQueue(queueId: string): Promise<void> {
   }
 }
 
-export async function calculateEstimatedWaitTime(departmentId: string, priority: QueueItem["priority"]): Promise<number> {
+export async function calculateEstimatedWaitTime(departmentId: string, priorityCode: string): Promise<number> {
   // Get current queue for department
   const queue = await fetchQueueByDepartment(departmentId);
   const waitingPatients = queue.filter(item => item.status === "waiting");
   
+  // Get priority ID from code
+  const priorityId = await getPriorityId(priorityCode);
+
   // Base wait times (in minutes) for each priority
   const baseWaitTimes = {
     urgent: 0,
@@ -321,10 +468,10 @@ export async function calculateEstimatedWaitTime(departmentId: string, priority:
   };
 
   // Calculate position-based wait time
-  const position = waitingPatients.findIndex(item => item.priority === priority);
+  const position = waitingPatients.findIndex(item => item.priority_id === priorityId);
   const averageConsultationTime = 20; // minutes
   
-  return baseWaitTimes[priority] + (position * averageConsultationTime);
+  return baseWaitTimes[priorityCode as keyof typeof baseWaitTimes] + (position * averageConsultationTime);
 }
 
 export async function getQueueStats(departmentId?: string): Promise<{
@@ -369,7 +516,7 @@ export async function getQueueStats(departmentId?: string): Promise<{
   return stats;
 }
 
-// New function to get queue stats for a specific doctor (department-based)
+// Enhanced function to get queue stats for a specific doctor (department-based)
 export async function getQueueStatsForDoctor(doctorId: string): Promise<{
   total: number;
   waiting: number;
@@ -378,6 +525,59 @@ export async function getQueueStatsForDoctor(doctorId: string): Promise<{
   averageWaitTime: number;
 }> {
   try {
+    console.log('Getting queue stats for doctor:', doctorId);
+
+    // Use the new enhanced database function
+    const { data, error } = await supabase.rpc('get_queue_stats_by_doctor_departments', {
+      p_doctor_id: doctorId
+    });
+
+    if (!error && data && data.length > 0) {
+      // Aggregate stats across all departments
+      const totalStats = data.reduce((acc, dept) => ({
+        total: acc.total + Number(dept.total_patients || 0),
+        waiting: acc.waiting + Number(dept.waiting_patients || 0),
+        inConsultation: acc.inConsultation + Number(dept.in_consultation_patients || 0),
+        completed: acc.completed + Number(dept.completed_patients || 0),
+        averageWaitTime: acc.averageWaitTime + Number(dept.average_wait_time || 0),
+      }), {
+        total: 0,
+        waiting: 0,
+        inConsultation: 0,
+        completed: 0,
+        averageWaitTime: 0,
+      });
+
+      // Calculate average wait time
+      if (data.length > 0) {
+        totalStats.averageWaitTime = totalStats.averageWaitTime / data.length;
+      }
+
+      console.log('Queue stats fetched successfully:', totalStats);
+      return totalStats;
+    }
+
+    console.log('Database function failed, using fallback method');
+    // Fallback to old method
+    return await getQueueStatsForDoctorFallback(doctorId);
+  } catch (error) {
+    console.error("getQueueStatsForDoctor error:", error);
+    // Fallback to old method
+    return await getQueueStatsForDoctorFallback(doctorId);
+  }
+}
+
+// Fallback method for getting queue stats for doctor
+async function getQueueStatsForDoctorFallback(doctorId: string): Promise<{
+  total: number;
+  waiting: number;
+  inConsultation: number;
+  completed: number;
+  averageWaitTime: number;
+}> {
+  try {
+    console.log('Using fallback method for queue stats');
+    
     // First, get the doctor's assigned department
     const { data: doctorProfile, error: profileError } = await supabase
       .from("profiles")
@@ -393,7 +593,7 @@ export async function getQueueStatsForDoctor(doctorId: string): Promise<{
     // Then get stats for that department
     return await getQueueStats(doctorProfile.department_id);
   } catch (error) {
-    console.error("getQueueStatsForDoctor error:", error);
+    console.error("getQueueStatsForDoctorFallback error:", error);
     throw error;
   }
 }
@@ -421,14 +621,14 @@ export async function updateEstimatedWaitTime(queueId: string): Promise<void> {
   try {
     const { data: queueItem } = await supabase
       .from("queue")
-      .select("department_id, priority")
+      .select("department_id, priority_code") // Changed from priority to priority_code
       .eq("id", queueId)
       .single();
 
-    if (queueItem && queueItem.department_id && queueItem.priority) {
+    if (queueItem && queueItem.department_id && queueItem.priority_code) {
       const estimatedWaitTime = await calculateEstimatedWaitTime(
         queueItem.department_id,
-        queueItem.priority
+        queueItem.priority_code
       );
 
       await supabase
@@ -438,5 +638,88 @@ export async function updateEstimatedWaitTime(queueId: string): Promise<void> {
     }
   } catch (error) {
     console.error("Failed to update estimated wait time", error);
+  }
+}
+
+// Get upcoming appointments (not yet in queue) for a doctor
+export async function getUpcomingAppointments(doctorId: string): Promise<any[]> {
+  try {
+    const { data, error } = await supabase.rpc('get_upcoming_appointments_by_doctor', {
+      p_doctor_id: doctorId
+    });
+
+    if (error) {
+      console.error("Failed to fetch upcoming appointments:", error);
+      throw error;
+    }
+
+    return data || [];
+  } catch (error) {
+    console.error("getUpcomingAppointments error:", error);
+    throw error;
+  }
+}
+
+// Get past appointments for a doctor
+export async function getPastAppointments(doctorId: string, daysBack: number = 30): Promise<any[]> {
+  try {
+    const { data, error } = await supabase.rpc('get_past_appointments_by_doctor', {
+      p_doctor_id: doctorId,
+      p_days_back: daysBack
+    });
+
+    if (error) {
+      console.error("Failed to fetch past appointments:", error);
+      throw error;
+    }
+    
+    return data || [];
+  } catch (error) {
+    console.error("getPastAppointments error:", error);
+    throw error;
+  }
+}
+
+// Add walk-in patient to queue
+export async function addWalkInToQueue(
+  patientId: string, 
+  departmentId: string, 
+  priorityCode: string = 'normal', 
+  notes?: string
+): Promise<string> {
+  try {
+    const { data, error } = await supabase.rpc('add_walk_in_to_queue', {
+      p_patient_id: patientId,
+      p_department_id: departmentId,
+      p_priority_code: priorityCode,
+      p_notes: notes || null
+    });
+
+    if (error) {
+      console.error("Failed to add walk-in to queue:", error);
+      throw error;
+    }
+
+    return data;
+  } catch (error) {
+    console.error("addWalkInToQueue error:", error);
+    throw error;
+  }
+}
+
+// Run daily queue maintenance (can be called manually or scheduled)
+export async function runDailyQueueMaintenance(): Promise<void> {
+  try {
+    const { error } = await supabase.rpc('daily_queue_maintenance');
+    
+    if (error) {
+      console.error("Failed to run daily queue maintenance:", error);
+      throw error;
+    }
+
+    console.log("Daily queue maintenance completed successfully");
+  } catch (error) {
+    console.error("runDailyQueueMaintenance error:", error);
+    throw error;
   }
 }

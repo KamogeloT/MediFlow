@@ -175,18 +175,26 @@ const AppointmentsPage = () => {
     return () => clearTimeout(searchPatientsDebounced);
   }, [patientSearchQuery, toast]);
 
-  const getStatusColor = (status: Appointment["status"]) => {
-    switch (status) {
+  const getStatusColor = (statusCode: string) => {
+    switch (statusCode) {
       case "scheduled":
         return "bg-blue-50 text-blue-700 border-blue-200";
       case "confirmed":
         return "bg-green-50 text-green-700 border-green-200";
-      case "in-progress":
+      case "in_progress":
         return "bg-yellow-50 text-yellow-700 border-yellow-200";
       case "completed":
         return "bg-gray-50 text-gray-700 border-gray-200";
       case "cancelled":
         return "bg-red-50 text-red-700 border-red-200";
+      case "checked_in":
+        return "bg-purple-50 text-purple-700 border-purple-200";
+      case "no_show":
+        return "bg-orange-50 text-orange-700 border-orange-200";
+      case "rescheduled":
+        return "bg-indigo-50 text-indigo-700 border-indigo-200";
+      case "waiting":
+        return "bg-pink-50 text-pink-700 border-pink-200";
       default:
         return "bg-gray-50 text-gray-700 border-gray-200";
     }
@@ -213,13 +221,13 @@ const AppointmentsPage = () => {
     });
   };
 
-  const handleStatusUpdate = async (appointmentId: string, newStatus: Appointment["status"]) => {
+  const handleStatusUpdate = async (appointmentId: string, newStatus: string) => {
     try {
       await updateAppointmentStatus(appointmentId, newStatus);
       
       setAppointments(prev => 
         prev.map(apt => 
-          apt.id === appointmentId ? { ...apt, status: newStatus } : apt
+          apt.id === appointmentId ? { ...apt, status_code: newStatus } : apt
         )
       );
       
@@ -535,7 +543,7 @@ const AppointmentsPage = () => {
                 <PopoverContent className="w-full p-0" align="start">
                   <Command>
                     <CommandInput
-                      placeholder="Search patients by name, email, or phone..."
+                      placeholder="Search patients by name, ID number, email, or phone..."
                       value={patientSearchQuery}
                       onValueChange={setPatientSearchQuery}
                     />
@@ -656,7 +664,7 @@ const AppointmentCard = ({
   isDoctor 
 }: { 
   appointment: Appointment; 
-  onStatusUpdate: (id: string, status: Appointment["status"]) => void;
+  onStatusUpdate: (id: string, status: string) => void;
   isDoctor: boolean;
 }) => {
   const [isUpdating, setIsUpdating] = useState(false);
@@ -680,18 +688,22 @@ const AppointmentCard = ({
     });
   };
 
-  const getStatusColor = (status: Appointment["status"]) => {
-    switch (status) {
+  const getStatusColor = (statusCode: string) => {
+    switch (statusCode) {
       case 'scheduled': return 'bg-blue-100 text-blue-800';
       case 'confirmed': return 'bg-green-100 text-green-800';
-      case 'in-progress': return 'bg-yellow-100 text-yellow-800';
+      case 'in_progress': return 'bg-yellow-100 text-yellow-800';
       case 'completed': return 'bg-gray-100 text-gray-800';
       case 'cancelled': return 'bg-red-100 text-red-800';
+      case 'checked_in': return 'bg-purple-100 text-purple-800';
+      case 'no_show': return 'bg-orange-100 text-orange-800';
+      case 'rescheduled': return 'bg-indigo-100 text-indigo-800';
+      case 'waiting': return 'bg-pink-100 text-pink-800';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
 
-  const handleStatusChange = async (newStatus: Appointment["status"]) => {
+  const handleStatusChange = async (newStatus: string) => {
     setIsUpdating(true);
     await onStatusUpdate(appointment.id, newStatus);
     setIsUpdating(false);
@@ -733,14 +745,14 @@ const AppointmentCard = ({
         </div>
         
         <div className="flex flex-col items-end gap-2">
-          <Badge className={getStatusColor(appointment.status)}>
-            {appointment.status.replace('-', ' ')}
+          <Badge className={getStatusColor(appointment.status_code)}>
+            {appointment.status_name}
           </Badge>
           
           {!isDoctor && (
             <Select 
-              value={appointment.status} 
-              onValueChange={(value: Appointment["status"]) => handleStatusChange(value)}
+              value={appointment.status_code} 
+              onValueChange={(value: string) => handleStatusChange(value)}
               disabled={isUpdating}
             >
               <SelectTrigger className="w-32">
@@ -749,7 +761,7 @@ const AppointmentCard = ({
               <SelectContent>
                 <SelectItem value="scheduled">Scheduled</SelectItem>
                 <SelectItem value="confirmed">Confirmed</SelectItem>
-                <SelectItem value="in-progress">In Progress</SelectItem>
+                <SelectItem value="in_progress">In Progress</SelectItem>
                 <SelectItem value="completed">Completed</SelectItem>
                 <SelectItem value="cancelled">Cancelled</SelectItem>
               </SelectContent>

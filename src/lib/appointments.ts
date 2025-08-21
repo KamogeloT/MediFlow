@@ -10,7 +10,9 @@ export interface Appointment {
   department_name?: string;
   start_time: string;
   end_time: string;
-  status: "scheduled" | "confirmed" | "in-progress" | "completed" | "cancelled";
+  status_id: number;
+  status_code: string;
+  status_name: string;
   notes?: string;
   created_at: string;
 }
@@ -31,6 +33,38 @@ export interface Patient {
   email?: string;
   phone?: string;
   date_of_birth?: string;
+}
+
+// Helper function to get status ID by code
+async function getStatusIdByCode(statusCode: string): Promise<number> {
+  const { data, error } = await supabase
+    .from('appointment_statuses')
+    .select('id')
+    .eq('code', statusCode)
+    .single();
+  
+  if (error) {
+    console.error('Error getting status ID:', error);
+    throw new Error(`Invalid status code: ${statusCode}`);
+  }
+  
+  return data.id;
+}
+
+// Helper function to get status code by ID
+async function getStatusCodeById(statusId: number): Promise<string> {
+  const { data, error } = await supabase
+    .from('appointment_statuses')
+    .select('code')
+    .eq('id', statusId)
+    .single();
+  
+  if (error) {
+    console.error('Error getting status code:', error);
+    throw new Error(`Invalid status ID: ${statusId}`);
+  }
+  
+  return data.code;
 }
 
 export async function searchPatients(query: string): Promise<Patient[]> {
@@ -89,6 +123,9 @@ export async function createAppointment(data: CreateAppointmentData): Promise<Ap
     .eq("id", data.department_id)
     .single();
 
+  // Get the scheduled status ID
+  const statusId = await getStatusIdByCode("scheduled");
+
   const appointmentData = {
     patient_id: data.patient_id,
     patient_name: data.patient_name,
@@ -97,7 +134,7 @@ export async function createAppointment(data: CreateAppointmentData): Promise<Ap
     start_time: data.start_time,
     end_time: data.end_time,
     notes: data.notes,
-    status: "scheduled" as const,
+    status_id: statusId,
   };
 
   const { data: appointment, error } = await supabase
@@ -136,10 +173,20 @@ export async function createAppointment(data: CreateAppointmentData): Promise<Ap
     // Don't fail the appointment creation if queue addition fails
   }
 
+  // Get the status information for the return value
+  const statusCode = await getStatusCodeById(statusId);
+  const { data: statusData } = await supabase
+    .from('appointment_statuses')
+    .select('name')
+    .eq('id', statusId)
+    .single();
+
   return {
     ...appointment,
     doctor_name: doctorData?.full_name,
     department_name: departmentData?.name,
+    status_code: statusCode,
+    status_name: statusData?.name || 'Unknown',
   };
 }
 
@@ -148,7 +195,8 @@ export async function fetchAppointmentsByDoctor(doctorId: string): Promise<Appoi
     .from("appointments")
     .select(`
       *,
-      departments!inner(name)
+      departments!inner(name),
+      appointment_statuses!inner(code, name)
     `)
     .eq("doctor_id", doctorId)
     .order("start_time", { ascending: true });
@@ -158,6 +206,8 @@ export async function fetchAppointmentsByDoctor(doctorId: string): Promise<Appoi
   return (data || []).map(item => ({
     ...item,
     department_name: item.departments?.name,
+    status_code: item.appointment_statuses?.code,
+    status_name: item.appointment_statuses?.name,
   }));
 }
 
@@ -167,7 +217,8 @@ export async function fetchAppointmentsByDepartment(departmentId: string): Promi
     .select(`
       *,
       profiles!inner(full_name),
-      departments!inner(name)
+      departments!inner(name),
+      appointment_statuses!inner(code, name)
     `)
     .eq("department_id", departmentId)
     .order("start_time", { ascending: true });
@@ -178,6 +229,8 @@ export async function fetchAppointmentsByDepartment(departmentId: string): Promi
     ...item,
     doctor_name: item.profiles?.full_name,
     department_name: item.departments?.name,
+    status_code: item.appointment_statuses?.code,
+    status_name: item.appointment_statuses?.name,
   }));
 }
 
@@ -187,7 +240,8 @@ export async function fetchAllAppointments(): Promise<Appointment[]> {
     .select(`
       *,
       profiles!inner(full_name),
-      departments!inner(name)
+      departments!inner(name),
+      appointment_statuses!inner(code, name)
     `)
     .order("start_time", { ascending: true });
 
@@ -197,13 +251,16 @@ export async function fetchAllAppointments(): Promise<Appointment[]> {
     ...item,
     doctor_name: item.profiles?.full_name,
     department_name: item.departments?.name,
+    status_code: item.appointment_statuses?.code,
+    status_name: item.appointment_statuses?.name,
   }));
 }
 
-export async function updateAppointmentStatus(appointmentId: string, status: Appointment["status"]): Promise<void> {
+export async function updateAppointmentStatus(appointmentId: string, status: Appointment["status_code"]): Promise<void> {
+  const statusId = await getStatusIdByCode(status);
   const { error } = await supabase
     .from("appointments")
-    .update({ status })
+    .update({ status_id: statusId })
     .eq("id", appointmentId);
 
   if (error) throw error;
@@ -281,17 +338,16 @@ export async function deleteAppointment(appointmentId: string): Promise<void> {
 // Helper function to sync existing appointments with queue
 export async function syncAppointmentsWithQueue(): Promise<void> {
   try {
-    const { addToQueue, fetchAllQueue } = await import('./queue');
-    
     // Get all scheduled appointments
     const { data: appointments } = await supabase
       .from("appointments")
-      .select("patient_id, patient_name, doctor_id, department_id, start_time")
-      .eq("status", "scheduled");
+      .select("patient_id, patient_name, doctor_id, department_id, start_time, status_id")
+      .eq("status_id", await getStatusIdByCode("scheduled"));
     
     if (!appointments) return;
     
     // Get current queue
+    const { fetchAllQueue, addToQueue } = await import('./queue');
     const currentQueue = await fetchAllQueue();
     
     // Add appointments that aren't in queue
@@ -317,7 +373,7 @@ export async function syncAppointmentsWithQueue(): Promise<void> {
   } catch (error) {
     console.error('Failed to sync appointments with queue:', error);
     throw error;
-  }
+    }
 }
 
 export async function checkAppointmentConflicts(doctorId: string, startTime: string, endTime: string, excludeId?: string): Promise<boolean> {
@@ -334,12 +390,16 @@ export async function checkAppointmentConflicts(doctorId: string, startTime: str
       return true; // Invalid time range
     }
     
+    // Get status IDs for cancelled and completed
+    const cancelledStatusId = await getStatusIdByCode("cancelled");
+    const completedStatusId = await getStatusIdByCode("completed");
+    
     let query = supabase
       .from("appointments")
-      .select("id, start_time, end_time, status")
+      .select("id, start_time, end_time, status_id")
       .eq("doctor_id", doctorId)
-      .neq("status", "cancelled")
-      .neq("status", "completed");
+      .neq("status_id", cancelledStatusId)
+      .neq("status_id", completedStatusId);
 
     if (excludeId) {
       query = query.neq("id", excludeId);

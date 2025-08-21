@@ -97,6 +97,131 @@ export interface ConsultationWorkflowState {
   created_by?: string;
 }
 
+// Helper function to get doctor's department assignments
+export async function getDoctorDepartments(doctorId: string): Promise<string[]> {
+  try {
+    console.log('Getting doctor departments for:', doctorId);
+    
+    // Use the database function first
+    const { data, error } = await supabase.rpc('get_doctor_departments_db', {
+      p_doctor_id: doctorId
+    });
+
+    if (!error && data) {
+      const departmentIds = data.map((dept: any) => dept.department_id);
+      console.log('Database function returned departments:', departmentIds);
+      return departmentIds;
+    }
+
+    console.log('Database function failed, using fallback method');
+    // Fallback to manual query
+    return await getDoctorDepartmentsFallback(doctorId);
+  } catch (error) {
+    console.error("getDoctorDepartments error:", error);
+    // Fallback to manual query
+    return await getDoctorDepartmentsFallback(doctorId);
+  }
+}
+
+// Fallback method for getting doctor departments
+async function getDoctorDepartmentsFallback(doctorId: string): Promise<string[]> {
+  try {
+    const departments: string[] = [];
+    
+    // Get from doctor_departments table
+    const { data: deptAssignments, error: deptError } = await supabase
+      .from("doctor_departments")
+      .select("department_id")
+      .eq("doctor_id", doctorId);
+
+    if (!deptError && deptAssignments) {
+      departments.push(...deptAssignments.map(d => d.department_id));
+    }
+
+    // Also check profiles.department_id as fallback
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("department_id")
+      .eq("id", doctorId)
+      .single();
+
+    if (!profileError && profile?.department_id && !departments.includes(profile.department_id)) {
+      departments.push(profile.department_id);
+    }
+
+    console.log('Fallback method returned departments:', departments);
+    return departments;
+  } catch (error) {
+    console.error("getDoctorDepartmentsFallback error:", error);
+    return [];
+  }
+}
+
+// Helper function to assign doctor to department
+export async function assignDoctorToDepartment(doctorId: string, departmentId: string): Promise<boolean> {
+  try {
+    console.log('Assigning doctor to department:', { doctorId, departmentId });
+    
+    // Use the database function first
+    const { data, error } = await supabase.rpc('assign_doctor_to_department_db', {
+      p_doctor_id: doctorId,
+      p_department_id: departmentId
+    });
+
+    if (!error && data) {
+      console.log('Doctor assigned successfully via database function');
+      return true;
+    }
+
+    console.log('Database function failed, using fallback method');
+    // Fallback to manual assignment
+    return await assignDoctorToDepartmentFallback(doctorId, departmentId);
+  } catch (error) {
+    console.error("assignDoctorToDepartment error:", error);
+    // Fallback to manual assignment
+    return await assignDoctorToDepartmentFallback(doctorId, departmentId);
+  }
+}
+
+// Fallback method for assigning doctor to department
+async function assignDoctorToDepartmentFallback(doctorId: string, departmentId: string): Promise<boolean> {
+  try {
+    console.log('Using fallback assignment method');
+    
+    // First, try to insert into doctor_departments table
+    const { error: deptError } = await supabase
+      .from("doctor_departments")
+      .insert([{
+        doctor_id: doctorId,
+        department_id: departmentId
+      }]);
+
+    if (deptError) {
+      console.error("Failed to assign to doctor_departments:", deptError);
+      
+      // If that fails, try to update profiles.department_id as fallback
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .update({ department_id: departmentId })
+        .eq("id", doctorId);
+
+      if (profileError) {
+        console.error("Failed to update profiles.department_id:", profileError);
+        return false;
+      }
+      
+      console.log('Doctor assigned via profiles.department_id');
+      return true;
+    }
+
+    console.log('Doctor assigned via doctor_departments table');
+    return true;
+  } catch (error) {
+    console.error("assignDoctorToDepartmentFallback error:", error);
+    return false;
+  }
+}
+
 // Helper function to ensure authentication
 async function ensureAuthenticated() {
   try {
@@ -125,22 +250,120 @@ async function ensureAuthenticated() {
   }
 }
 
-// Verify doctor has access to consultation (department-based)
+// Verify doctor has access to consultation (simplified since queue is already filtered)
 export async function verifyDoctorAccess(queueItemId: string, doctorId: string): Promise<boolean> {
   try {
-    // Get the doctor's assigned department
-    const { data: doctorProfile, error: profileError } = await supabase
-      .from("profiles")
-      .select("department_id")
-      .eq("id", doctorId)
-      .single();
+    console.log('Verifying doctor access:', { queueItemId, doctorId });
+    
+    // Since the queue is now filtered by department, this is just a simple verification
+    const { data, error } = await supabase.rpc('can_doctor_access_queue_item', {
+      p_doctor_id: doctorId,
+      p_queue_item_id: queueItemId
+    });
 
-    if (profileError || !doctorProfile?.department_id) {
-      console.error("Failed to fetch doctor's department:", profileError);
-      return false;
+    if (error) {
+      console.error("Database verification error:", error);
+      // Fallback to simple check
+      return await verifyDoctorAccessFallback(queueItemId, doctorId);
     }
 
-    // Get the queue item's department
+    console.log('Access verification result:', data);
+    return data === true;
+  } catch (error) {
+    console.error("verifyDoctorAccess error:", error);
+    // Fallback to simple check
+    return await verifyDoctorAccessFallback(queueItemId, doctorId);
+  }
+}
+
+// Validate queue item before starting consultation
+export async function validateQueueItem(queueItemId: string): Promise<{
+  isValid: boolean;
+  error?: string;
+  queueItem?: any;
+}> {
+  try {
+    console.log('Validating queue item:', queueItemId);
+    
+    // Check if queue item exists and is available for consultation
+    const { data: queueItem, error } = await supabase
+      .from("queue")
+      .select("*")
+      .eq("id", queueItemId)
+      .single();
+
+    if (error) {
+      console.error("Queue item validation error:", error);
+      if (error.code === 'PGRST116') {
+        return {
+          isValid: false,
+          error: "Queue item not found. It may have been removed or completed."
+        };
+      }
+      return {
+        isValid: false,
+        error: "Failed to validate queue item. Please try again."
+      };
+    }
+
+    if (!queueItem) {
+      return {
+        isValid: false,
+        error: "Queue item not found. It may have been removed or completed."
+      };
+    }
+
+    // Check if queue item is still in a valid status for consultation
+    if (queueItem.status === 'completed') {
+      return {
+        isValid: false,
+        error: "This patient's consultation has already been completed."
+      };
+    }
+
+    if (queueItem.status === 'in-consultation') {
+      return {
+        isValid: false,
+        error: "This patient is already in consultation with another doctor."
+      };
+    }
+
+    if (queueItem.status === 'archived') {
+      return {
+        isValid: false,
+        error: "This patient's record has been archived."
+      };
+    }
+
+    // Check if queue item is still in waiting status
+    if (queueItem.status !== 'waiting') {
+      return {
+        isValid: false,
+        error: `Patient is in '${queueItem.status}' status and cannot start consultation.`
+      };
+    }
+
+    console.log('Queue item validation successful:', queueItem);
+    return {
+      isValid: true,
+      queueItem
+    };
+  } catch (error) {
+    console.error("validateQueueItem error:", error);
+    return {
+      isValid: false,
+      error: "Failed to validate queue item. Please try again."
+    };
+  }
+}
+
+// Simplified fallback verification method
+async function verifyDoctorAccessFallback(queueItemId: string, doctorId: string): Promise<boolean> {
+  try {
+    console.log('Using simplified fallback verification');
+    
+    // Simple check: if the doctor can see this queue item, they can access it
+    // This is a safety check in case the main filtering fails
     const { data: queueItem, error: queueError } = await supabase
       .from("queue")
       .select("department_id")
@@ -148,14 +371,39 @@ export async function verifyDoctorAccess(queueItemId: string, doctorId: string):
       .single();
 
     if (queueError || !queueItem?.department_id) {
-      console.error("Failed to fetch queue item department:", queueError);
+      console.error("Queue item not found:", queueError);
       return false;
     }
 
-    // Check if doctor's department matches queue item's department
-    return doctorProfile.department_id === queueItem.department_id;
+    // Check if doctor has access to this department
+    const { data: deptAssignment, error: deptError } = await supabase
+      .from("doctor_departments")
+      .select("id")
+      .eq("doctor_id", doctorId)
+      .eq("department_id", queueItem.department_id)
+      .single();
+
+    if (deptAssignment) {
+      console.log('Access verified via doctor_departments');
+      return true;
+    }
+
+    // Fallback to profiles.department_id
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("department_id")
+      .eq("id", doctorId)
+      .single();
+
+    if (!profileError && profile?.department_id === queueItem.department_id) {
+      console.log('Access verified via profiles.department_id');
+      return true;
+    }
+
+    console.log('Access denied - doctor not assigned to department');
+    return false;
   } catch (error) {
-    console.error("verifyDoctorAccess error:", error);
+    console.error("verifyDoctorAccessFallback error:", error);
     return false;
   }
 }
@@ -172,11 +420,21 @@ export async function startConsultation(data: StartConsultationData): Promise<st
     console.log('startConsultation called with data:', data);
     console.log('User ID:', user.id);
 
+    // First, validate the queue item before proceeding
+    const validation = await validateQueueItem(data.queue_item_id);
+    if (!validation.isValid) {
+      throw new Error(validation.error || "Queue item validation failed");
+    }
+
+    console.log('Queue item validation passed:', validation.queueItem);
+
     // Verify doctor has access to this consultation
     const hasAccess = await verifyDoctorAccess(data.queue_item_id, data.doctor_id);
     if (!hasAccess) {
       throw new Error("Access denied: You can only start consultations for patients in your assigned department");
     }
+
+    console.log('Doctor access verified, calling start_consultation RPC...');
 
     const { data: result, error } = await supabase.rpc('start_consultation', {
       p_queue_item_id: data.queue_item_id,
@@ -189,13 +447,36 @@ export async function startConsultation(data: StartConsultationData): Promise<st
 
     if (error) {
       console.error("Failed to start consultation:", error);
-      throw error;
+      
+      // Create a more informative error
+      const enhancedError = new Error(error.message || 'Failed to start consultation');
+      (enhancedError as any).code = error.code;
+      (enhancedError as any).details = error.details;
+      (enhancedError as any).hint = error.hint;
+      
+      throw enhancedError;
     }
 
+    if (!result) {
+      throw new Error("No session ID returned from consultation start");
+    }
+
+    console.log('Consultation started successfully with session ID:', result);
     return result;
   } catch (error) {
     console.error("startConsultation error:", error);
-    throw error;
+    
+    // If it's already an enhanced error, re-throw it
+    if (error && typeof error === 'object' && (error as any).code) {
+      throw error;
+    }
+    
+    // Create a standard error if it's not already enhanced
+    if (error instanceof Error) {
+      throw error;
+    } else {
+      throw new Error(`Failed to start consultation: ${error}`);
+    }
   }
 }
 
@@ -533,6 +814,49 @@ export async function getDepartmentConsultationLogs(departmentId: string): Promi
     return data || [];
   } catch (error) {
     console.error("getDepartmentConsultationLogs error:", error);
+    throw error;
+  }
+}
+
+// Get current doctor's profile information
+export async function getCurrentDoctorProfile(doctorId: string) {
+  try {
+    // First, get the basic profile information
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select(`
+        id,
+        full_name,
+        department_id
+      `)
+      .eq('id', doctorId)
+      .eq('role', 'doctor')
+      .single();
+
+    if (profileError) throw profileError;
+
+    // Then, get the department name separately
+    let departmentName = 'No Department Assigned';
+    if (profile.department_id) {
+      const { data: department, error: deptError } = await supabase
+        .from('departments')
+        .select('name')
+        .eq('id', profile.department_id)
+        .single();
+      
+      if (!deptError && department) {
+        departmentName = department.name;
+      }
+    }
+
+    return {
+      id: profile.id,
+      full_name: profile.full_name,
+      department_id: profile.department_id,
+      department_name: departmentName
+    };
+  } catch (error) {
+    console.error('Error fetching doctor profile:', error);
     throw error;
   }
 }
