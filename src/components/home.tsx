@@ -10,6 +10,7 @@ import AppointmentsPage from "./dashboard/AppointmentsPage";
 import QueuePage from "./dashboard/QueuePage";
 import DoctorAssignmentsPage from "./dashboard/DoctorAssignmentsPage";
 import PatientsPage from "./dashboard/PatientsPage";
+import NurseDashboard from "./dashboard/NurseDashboard";
 // import { BillingPage } from "./dashboard/BillingPage";
 import { useToast } from "@/components/ui/use-toast";
 import { subscribeToPatients } from "@/lib/patients";
@@ -17,7 +18,7 @@ import { notify } from "@/lib/notifications";
 import { supabase } from "@/lib/supabase";
 
 interface HomeProps {
-  role: "doctor" | "front-desk";
+  role: "doctor" | "front-desk" | "nurse";
   userName?: string;
   userAvatar?: string;
 }
@@ -157,6 +158,8 @@ const Home = ({
         default:
           return <FrontDeskDashboard />;
       }
+    } else if (role === "nurse") {
+      return <NurseDashboard />;
     } else {
       return <DoctorView />;
     }
@@ -165,12 +168,13 @@ const Home = ({
   return (
     <div className="min-h-screen flex bg-gray-100">
       {/* Sidebar */}
-      {role === "front-desk" && (
+      {(role === "front-desk" || role === "nurse") && (
         <Sidebar
           currentView={currentView}
           onViewChange={handleViewChange}
           isOpen={sidebarOpen}
           onToggle={toggleSidebar}
+          role={role}
         />
       )}
 

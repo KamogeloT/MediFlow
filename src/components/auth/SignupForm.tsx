@@ -15,7 +15,7 @@ const signupSchema = z.object({
   name: z.string().min(1, "Name is required"),
   email: z.string().email(),
   password: z.string().min(6, "Password must be at least 6 characters"),
-  role: z.enum(["doctor", "front-desk"]),
+  role: z.enum(["doctor", "front-desk", "nurse"]),
   departmentId: z.string().optional(),
 });
 
@@ -27,6 +27,8 @@ export default function SignupForm() {
   const [serverError, setServerError] = useState<string | null>(null);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [isLoadingDepartments, setIsLoadingDepartments] = useState(false);
+  const [signupSuccess, setSignupSuccess] = useState(false);
+  const [userEmail, setUserEmail] = useState('');
 
   const {
     register,
@@ -36,7 +38,7 @@ export default function SignupForm() {
     setValue,
   } = useForm<SignupFormValues>({
     resolver: zodResolver(signupSchema),
-    defaultValues: { role: "doctor", departmentId: "" },
+    defaultValues: { role: "nurse", departmentId: "" },
   });
 
   const role = watch("role");
@@ -69,7 +71,8 @@ export default function SignupForm() {
     
     try {
       await signUp(values.email, values.password, values.name, values.role, values.departmentId);
-      navigate("/dashboard");
+      setUserEmail(values.email);
+      setSignupSuccess(true);
     } catch (error: any) {
       setServerError(error.message);
     }
@@ -108,9 +111,9 @@ export default function SignupForm() {
         <RadioGroup
           value={role}
           onValueChange={(val) => {
-            setValue("role", val as "doctor" | "front-desk");
-            // Clear department if switching to front-desk
-            if (val === "front-desk") {
+            setValue("role", val as "doctor" | "front-desk" | "nurse");
+            // Clear department if switching to front-desk or nurse
+            if (val === "front-desk" || val === "nurse") {
               setValue("departmentId", "");
             }
           }}
@@ -118,6 +121,10 @@ export default function SignupForm() {
           <div className="flex items-center space-x-2">
             <RadioGroupItem value="doctor" id="doctor" />
             <Label htmlFor="doctor">Doctor</Label>
+          </div>
+          <div className="flex items-center space-x-2">
+            <RadioGroupItem value="nurse" id="nurse" />
+            <Label htmlFor="nurse">Nurse</Label>
           </div>
           <div className="flex items-center space-x-2">
             <RadioGroupItem value="front-desk" id="front-desk" />
@@ -168,9 +175,47 @@ export default function SignupForm() {
           {serverError}
         </p>
       )}
-      <Button type="submit" className="w-full" disabled={isSubmitting}>
-        {isSubmitting ? "Creating account..." : "Create account"}
-      </Button>
+      
+      {signupSuccess ? (
+        <div className="space-y-4">
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
+            <div className="text-green-600 text-4xl mb-2">🎉</div>
+            <h3 className="text-lg font-semibold text-green-800 mb-2">
+              Account Created Successfully!
+            </h3>
+            <p className="text-green-700 text-sm mb-4">
+              We've sent a confirmation email to <strong>{userEmail}</strong>
+            </p>
+            <p className="text-green-600 text-xs">
+              Please check your email and click the confirmation link to activate your account.
+            </p>
+          </div>
+          
+          <div className="space-y-3">
+            <Button 
+              onClick={() => navigate('/login')} 
+              className="w-full"
+              variant="outline"
+            >
+              Go to Login
+            </Button>
+            <Button 
+              onClick={() => {
+                setSignupSuccess(false);
+                setUserEmail('');
+              }} 
+              className="w-full"
+              variant="ghost"
+            >
+              Create Another Account
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Button type="submit" className="w-full" disabled={isSubmitting}>
+          {isSubmitting ? "Creating account..." : "Create account"}
+        </Button>
+      )}
     </form>
   );
 }

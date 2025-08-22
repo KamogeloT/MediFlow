@@ -18,53 +18,82 @@ interface SidebarProps {
   onViewChange: (view: "dashboard" | "registration" | "appointments" | "queue" | "assignments" | "patients" | "billing") => void;
   isOpen: boolean;
   onToggle: () => void;
+  role?: "front-desk" | "nurse";
 }
 
-const Sidebar = ({ currentView, onViewChange, isOpen, onToggle }: SidebarProps) => {
-  const navigationItems = [
-    {
-      id: "dashboard" as const,
-      label: "Dashboard",
-      icon: Home,
-      description: "Overview and quick actions"
-    },
-    {
-      id: "registration" as const,
-      label: "Patient Registration",
-      icon: UserPlus,
-      description: "Register new patients"
-    },
-    {
-      id: "appointments" as const,
-      label: "Appointments",
-      icon: Calendar,
-      description: "Manage appointments"
-    },
-    {
-      id: "queue" as const,
-      label: "Patient Queue",
-      icon: Clock,
-      description: "Monitor patient queue"
-    },
-    {
-      id: "patients" as const,
-      label: "Patient Directory",
-      icon: Users,
-      description: "View all patients"
-    },
-    {
-      id: "assignments" as const,
-      label: "Doctor Assignments",
-      icon: Users,
-      description: "Manage doctor departments"
-    },
-    {
-      id: "billing" as const,
-      label: "Billing",
-      icon: DollarSign,
-      description: "Manage billing and invoices"
+const Sidebar = ({ currentView, onViewChange, isOpen, onToggle, role = "front-desk" }: SidebarProps) => {
+  const getNavigationItems = () => {
+    if (role === "nurse") {
+      return [
+        {
+          id: "dashboard" as const,
+          label: "Nurse Dashboard",
+          icon: Home,
+          description: "Patient overview and vitals"
+        },
+        {
+          id: "patients" as const,
+          label: "All Patients",
+          icon: Users,
+          description: "View all patients across departments"
+        },
+        {
+          id: "queue" as const,
+          label: "Patient Queue",
+          icon: Clock,
+          description: "Monitor all patient queues"
+        }
+      ];
     }
-  ];
+
+    // Front-desk navigation items
+    return [
+      {
+        id: "dashboard" as const,
+        label: "Dashboard",
+        icon: Home,
+        description: "Overview and quick actions"
+      },
+      {
+        id: "registration" as const,
+        label: "Patient Registration",
+        icon: UserPlus,
+        description: "Register new patients"
+      },
+      {
+        id: "appointments" as const,
+        label: "Appointments",
+        icon: Calendar,
+        description: "Manage appointments"
+      },
+      {
+        id: "queue" as const,
+        label: "Patient Queue",
+        icon: Clock,
+        description: "Monitor patient queue"
+      },
+      {
+        id: "patients" as const,
+        label: "Patient Directory",
+        icon: Users,
+        description: "View all patients"
+      },
+      {
+        id: "assignments" as const,
+        label: "Doctor Assignments",
+        icon: Users,
+        description: "Manage doctor departments"
+      },
+      {
+        id: "billing" as const,
+        label: "Billing",
+        icon: DollarSign,
+        description: "Manage billing and invoices"
+      }
+    ];
+  };
+
+  const navigationItems = getNavigationItems();
 
   return (
     <div className={`bg-white border-r border-gray-200 transition-all duration-300 ${

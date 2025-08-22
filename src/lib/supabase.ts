@@ -11,7 +11,14 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
     detectSessionInUrl: true,
     storage: window.localStorage,
     storageKey: 'supabase.auth.token',
-    flowType: 'pkce'
+    flowType: 'pkce',
+    // Handle email confirmation redirects
+    onAuthStateChange: (event, session) => {
+      if (event === 'SIGNED_IN' && session?.user?.email_confirmed_at) {
+        // User has confirmed their email
+        console.log('User email confirmed:', session.user.email);
+      }
+    }
   },
   global: {
     headers: {
@@ -51,6 +58,31 @@ export async function refreshSession(): Promise<boolean> {
     return !!data.session;
   } catch (error) {
     console.error("Session refresh failed:", error);
+    return false;
+  }
+}
+
+// Helper function to handle email confirmation
+export async function confirmEmail(token: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase.auth.confirmSignUp(token);
+    if (error) {
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (error) {
+    console.error('Email confirmation error:', error);
+    return { success: false, error: 'An unexpected error occurred' };
+  }
+}
+
+// Helper function to check if user's email is confirmed
+export async function isEmailConfirmed(): Promise<boolean> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    return user?.email_confirmed_at ? true : false;
+  } catch (error) {
+    console.error('Email confirmation check failed:', error);
     return false;
   }
 }

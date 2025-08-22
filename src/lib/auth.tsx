@@ -8,7 +8,7 @@ interface AuthContextType {
     email: string,
     password: string,
     name: string,
-    role: "doctor" | "front-desk",
+    role: "doctor" | "front-desk" | "nurse",
     departmentId?: string,
   ) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
@@ -66,7 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     email: string,
     password: string,
     name: string,
-    role: "doctor" | "front-desk",
+    role: "doctor" | "front-desk" | "nurse",
     departmentId?: string,
   ) => {
     const { data, error } = await supabase.auth.signUp({

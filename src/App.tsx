@@ -4,6 +4,7 @@ import Home from "./components/home";
 import LandingPage from "./components/landing/LandingPage";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
+import EmailConfirmation from "./pages/EmailConfirmation";
 import ProtectedRoute from "./components/auth/ProtectedRoute";
 import { useAuth } from "./lib/auth";
 import routes from "tempo-routes";
@@ -23,6 +24,7 @@ function App() {
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
+          <Route path="/confirm-email" element={<EmailConfirmation />} />
           <Route
             path="/doctor"
             element={
